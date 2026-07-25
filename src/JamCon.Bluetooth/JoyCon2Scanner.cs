@@ -13,8 +13,10 @@ public sealed record JoyCon2Discovery(
 {
     public string DisplayName => JoyCon2Advertisement.DisplayName(Identity.Handedness);
 
-    public string AddressString =>
-        string.Join(':', BitConverter.GetBytes(BluetoothAddress)[..6].Reverse().Select(b => b.ToString("X2")));
+    /// <summary>The 48-bit address in conventional MAC notation, most significant byte first.</summary>
+    public string AddressString => string.Join(
+        ':',
+        Enumerable.Range(0, 6).Select(i => ((byte)(BluetoothAddress >> ((5 - i) * 8))).ToString("X2")));
 }
 
 /// <summary>
