@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Output sinks: SendInput via P/Invoke (Phase 3), ViGEm virtual gamepad (Phase 4). -->
+  <PropertyGroup>
+    <TargetFramework>$(JamConWindowsTfm)</TargetFramework>
+    <SupportedOSPlatformVersion>$(JamConWindowsSupportedOsVersion)</SupportedOSPlatformVersion>
+    <RootNamespace>JamCon.Output</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JamCon.Core\JamCon.Core.csproj" />
+  </ItemGroup>
+
+</Project>

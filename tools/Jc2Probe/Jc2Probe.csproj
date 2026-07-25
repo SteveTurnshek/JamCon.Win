@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Phase 1 BLE transport spike. Throwaway console tool: connect, initialize, print
+    decoded reports and a measured rate, dump raw frames for the golden-vector fixture.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(JamConWindowsTfm)</TargetFramework>
+    <SupportedOSPlatformVersion>$(JamConWindowsSupportedOsVersion)</SupportedOSPlatformVersion>
+    <RootNamespace>Jc2Probe</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\JamCon.Bluetooth\JamCon.Bluetooth.csproj" />
+    <ProjectReference Include="..\..\src\JamCon.Core\JamCon.Core.csproj" />
+  </ItemGroup>
+
+</Project>

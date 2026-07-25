@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- WinRT GATT transport: Windows.Devices.Bluetooth.GenericAttributeProfile. -->
+  <PropertyGroup>
+    <TargetFramework>$(JamConWindowsTfm)</TargetFramework>
+    <SupportedOSPlatformVersion>$(JamConWindowsSupportedOsVersion)</SupportedOSPlatformVersion>
+    <RootNamespace>JamCon.Bluetooth</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JamCon.Core\JamCon.Core.csproj" />
+  </ItemGroup>
+
+</Project>

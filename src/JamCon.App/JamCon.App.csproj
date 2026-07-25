@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- WPF tray application (Phase 5). Tray icon package added when the UI lands. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>$(JamConWindowsTfm)</TargetFramework>
+    <SupportedOSPlatformVersion>$(JamConWindowsSupportedOsVersion)</SupportedOSPlatformVersion>
+    <RootNamespace>JamCon.App</RootNamespace>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JamCon.Bluetooth\JamCon.Bluetooth.csproj" />
+    <ProjectReference Include="..\JamCon.Core\JamCon.Core.csproj" />
+    <ProjectReference Include="..\JamCon.Output\JamCon.Output.csproj" />
+  </ItemGroup>
+
+</Project>

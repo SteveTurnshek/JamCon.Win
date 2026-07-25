@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Plain net9.0 on purpose. No WinRT, no P/Invoke, no UI.
+    Protocol decode, gyro math, button mapping and engine policy live here so they stay
+    buildable and testable without a Windows SDK. Do not add a Windows TFM to this project.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>JamCon.Core</RootNamespace>
+  </PropertyGroup>
+
+</Project>

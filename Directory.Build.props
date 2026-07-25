@@ -1,0 +1,22 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <!--
+    Single source of truth for the Windows target framework. Only the platform-layer
+    projects use it: JamCon.Bluetooth, JamCon.Output, JamCon.App, tools/Jc2Probe.
+    JamCon.Core and its tests deliberately target plain net9.0 so the protocol, gyro,
+    mapping and engine logic stays buildable and testable without a Windows SDK.
+  -->
+  <PropertyGroup>
+    <JamConWindowsTfm>net9.0-windows10.0.22621.0</JamConWindowsTfm>
+    <JamConWindowsSupportedOsVersion>10.0.22621.0</JamConWindowsSupportedOsVersion>
+  </PropertyGroup>
+
+</Project>

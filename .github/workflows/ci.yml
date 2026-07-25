@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # windows-latest is required: JamCon.Bluetooth, JamCon.Output, JamCon.App and
+    # tools/Jc2Probe target net9.0-windows10.0.22621.0 and need the Windows SDK
+    # projections. JamCon.Core and its tests are plain net9.0 by design.
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore JamCon.Win.sln
+
+      - name: Build
+        run: dotnet build JamCon.Win.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test JamCon.Win.sln --configuration Release --no-build --verbosity normal

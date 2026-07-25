@@ -1,34 +1,39 @@
-# Build artifacts
-.build/
-build/
-DerivedData/
-*.xcodeproj/xcuserdata/
-*.xcodeproj/project.xcworkspace/xcuserdata/
-
-# macOS
-.DS_Store
-
-# Xcode
-*.pbxuser
-*.mode1v3
-*.mode2v3
-*.perspectivev3
-*.xcuserstate
-
-# Swift Package Manager
-.swiftpm/
-Package.resolved
-
-# Temporary image files (used for icon creation)
-/*.png
-
-# Local release credentials
-release.env
-
-# Release artifacts
+# Build output
+[Bb]in/
+[Oo]bj/
+artifacts/
 dist/
 
-# Beads / Dolt files (added by bd init)
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+# Test and coverage output
+[Tt]est[Rr]esult*/
+*.trx
+coverage*.json
+coverage*.xml
+coverage*.cobertura.xml
+
+# NuGet
+*.nupkg
+*.snupkg
+
+# Windows
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Local secrets and machine-specific config
+*.local.json
+.env
+.env.*
+!.env.example
+
+# Beads / Dolt files (inherited from upstream tooling)
 .dolt/
 *.db
 .beads-credential-key
