@@ -35,6 +35,57 @@ the types Phase 1 needs are projected and reachable from `JamCon.Bluetooth` unde
 This removes "can .NET even reach the WinRT BLE API" from the Phase 1 risk list. It says nothing
 about whether the API *works* against a Joy-Con 2 — that is still open.
 
+## Radio availability is a distinct failure mode
+
+**Verified 2026-07-25.** Starting a `BluetoothLEAdvertisementWatcher` while the radio is switched off
+throws a bare `COMException (0x800710DF, ERROR_DEVICE_NOT_AVAILABLE)` from `watcher.Start()`. The
+HRESULT is accurate but unactionable, and it looks like a code fault rather than a settings problem.
+
+Worth recording because the obvious diagnostic misleads: on this machine Device Manager reported the
+**MediaTek Bluetooth Adapter** as healthy (`Status: OK`) and `bthserv` as `Running` while the radio
+was nonetheless off in Settings and every scan failed. Adapter health is not a usability signal.
+
+`BluetoothRadioState.CheckAsync()` queries `Radio.GetRadiosAsync()` up front and distinguishes
+*ready* / *radio off* / *no radio* / *unknown*. `JoyCon2Scanner.Start()` additionally translates that
+HRESULT into `BluetoothUnavailableException`. The tray UI in Phase 5 should surface this state
+directly rather than reporting "no controllers found", which is the wrong diagnosis and sends users
+hunting for a controller problem that does not exist.
+
+## Running the Phase 1 probe
+
+```bash
+dotnet run --project tools/Jc2Probe -- --seconds 300
+```
+
+```bash
+dotnet run --project tools/Jc2Probe -- --dual --seconds 300
+```
+
+Flags: `--dual` (connect two controllers and measure each), `--scan-seconds N` (default 15),
+`--seconds N` (default 300, matching the five-minute exit criterion), `--out DIR` (default
+`./captures`).
+
+Exit codes: `0` measured, `2` no Joy-Con 2 found, `3` nothing reached streaming, `4` Bluetooth
+unusable.
+
+Hold the SYNC button until the player LEDs chase before running. Each run writes a `.bin` (byte-exact
+frames, the authoritative fixture) and a `.jsonl` sidecar (timestamps plus decoded fields). Raw
+captures are gitignored; promote a chosen capture into `tests/**/Fixtures/` deliberately.
+
+The probe prints the raw manufacturer-data bytes for every match, and reports which offset
+interpretation succeeded — that is what settles the open advertisement-offset question below.
+
+### Advertisement offsets differ from CoreBluetooth — reasoned, not yet measured
+
+This is the one place upstream's validated offsets cannot be copied verbatim. Upstream reads the
+vendor ID at payload offset 5 and product ID at 7, because CoreBluetooth's manufacturer payload
+*includes* the leading two-byte company identifier. WinRT splits those: `CompanyId` is a separate
+property and `.Data` holds only the remainder, which should put the same fields at offsets 3 and 5.
+
+`JoyCon2Advertisement` tries the Windows offsets first, falls back to the CoreBluetooth offsets, and
+reports which matched via `PayloadIncludedCompanyId`. Both paths are unit-tested. The first hardware
+run resolves it; record the answer here and then simplify the decoder.
+
 ## Open questions — Phase 1 transport spike
 
 These are the questions `tools/Jc2Probe` exists to answer. None have been tested against hardware.

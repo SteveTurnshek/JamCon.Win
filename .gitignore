@@ -33,6 +33,11 @@ desktop.ini
 .env.*
 !.env.example
 
+# Raw probe captures. Curated golden-vector fixtures are committed deliberately under
+# tests/**/Fixtures/, not swept in from wherever the probe last ran.
+captures/
+tools/Jc2Probe/captures/
+
 # Beads / Dolt files (inherited from upstream tooling)
 .dolt/
 *.db

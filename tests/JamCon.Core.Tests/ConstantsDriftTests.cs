@@ -17,6 +17,15 @@ public class ConstantsDriftTests
     }
 
     [Fact]
+    public void GyroScaleAgreesWithTheDerivingFormula()
+    {
+        // 34.8 rad/s full scale at the IMU's ~±2000 deg/s range, over Int16.MaxValue counts.
+        // Guards the literal against a transcription slip, independently of the spec text.
+        var derived = 34.8 * 180.0 / (Math.PI * short.MaxValue);
+        Assert.Equal(GyroConstants.DegreesPerSecondPerCount, derived, precision: 9);
+    }
+
+    [Fact]
     public void StickGeometryMatchesValidatedSpec()
     {
         Assert.Equal(150, GyroConstants.NeutralCorrectionRadiusCounts);
