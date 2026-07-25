@@ -21,7 +21,19 @@ MIT licensed, copyright (c) 2024-2025 James Turnshek. See [../../LICENSE](../../
 | `InputEngine+JoyCon.swift` | `Sources/JamCon/Engine/` | `Core/Engine/` |
 | `InputEngine.swift` | `Sources/JamCon/Engine/` | `Core/Engine/` — partial; strip Sense/G502X paths |
 | `MouseController.swift` | `Sources/JamCon/` | `JamCon.Output` (SendInput) |
-| `JoyCon2BLEInputDeviceBackendTests.swift` | `Tests/JamConTests/` | `tests/JamCon.Core.Tests/` — translate before implementing |
+
+### Upstream tests — translate to xUnit before writing implementation
+
+Porting these first is what makes the Phase 2 port trustworthy rather than hopeful. They already
+cover protocol, cadence, decoder and backend contract against validated behavior.
+
+| File | Upstream path | Covers |
+| --- | --- | --- |
+| `JoyCon2BLEInputDeviceBackendTests.swift` | `Tests/JamConTests/` | Protocol, cadence, decoder, backend contract |
+| `GyroProcessorTests.swift` | `Tests/JamConTests/` | Gyro processing — pairs with `GyroProcessor.swift` |
+| `JoyConPacketTimingTests.swift` | `Tests/JamConTests/` | Packet timing and rate measurement |
+| `InputEngineInteractionTests.swift` | `Tests/JamConTests/` | Engine behavior — pairs with `InputEngine.swift` |
+| `NumericSettingNormalizerTests.swift` | `Tests/JamConTests/` | Settings normalization |
 
 `ButtonAction.swift` needs an honest Windows audit rather than a transliteration: Task View is
 `Win+Tab`, media keys are `VK_MEDIA_*`, browser navigation is `VK_BROWSER_BACK`/`FORWARD`. The

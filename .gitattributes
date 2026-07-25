@@ -1,3 +1,28 @@
+# Normalize line endings: LF in the repository, native in the working tree.
+* text=auto
 
-# Use bd merge for beads JSONL files
-.beads/issues.jsonl merge=beads
+# Windows-only tooling that must keep CRLF locally.
+*.sln       text eol=crlf
+*.csproj    text eol=crlf
+*.props     text eol=crlf
+*.targets   text eol=crlf
+*.manifest  text eol=crlf
+*.ps1       text eol=crlf
+*.cmd       text eol=crlf
+*.bat       text eol=crlf
+
+# Always LF.
+*.sh        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+
+# Binary — never touch.
+*.png       binary
+*.ico       binary
+*.dll       binary
+*.exe       binary
+
+# Captured Joy-Con 2 BLE frame dumps used as golden-vector fixtures.
+# Byte-exact by definition; any normalization would corrupt them.
+*.bin       binary
+tests/**/Fixtures/**  -text -diff

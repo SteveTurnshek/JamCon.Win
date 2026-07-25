@@ -1,89 +1,88 @@
 # AGENTS.md
 
-This file provides guidance to coding agents when working with code in this repository.
+Guidance for coding agents working in this repository.
 
-## Build and Development
+JamCon.Win is a **Windows-only** C#/.NET fork of [jturnshek/JamCon](https://github.com/jturnshek/JamCon),
+supporting Switch 2 Joy-Con only. macOS support was removed, not maintained. If you find yourself
+writing Swift, AppKit, CoreBluetooth or CGEvent code, you are in the wrong repository.
 
-**Prerequisites:** Xcode 16+, XcodeGen (`brew install xcodegen`), Apple Developer account for code signing.
+## Build and test
 
-### Commands
+Requires the .NET 9 SDK and Windows 11 22H2+.
 
 ```bash
-# First time setup (generates Xcode project from project.yml)
-xcodegen generate
-
-# Build, sign, install to /Applications, and launch
-./dev.sh
-
-# Quick relaunch without rebuilding
-./relaunch.sh
+dotnet build JamCon.Win.sln
 ```
 
-### Why Script-Based Workflow
-
-macOS accessibility permissions are tied to code signatures. Running from Xcode produces unstable debug signatures that break permissions on every rebuild. The `dev.sh` script builds a Release version, signs with a stable Developer ID, and installs to `/Applications/JamCon.app` where permissions persist.
-
-Edit `SIGNING_IDENTITY` in `dev.sh` to use your certificate. Find yours with:
 ```bash
-security find-identity -v -p codesigning
+dotnet test JamCon.Win.sln
 ```
 
-## Architecture
+There is no script-based workflow. Upstream needed one because macOS accessibility permissions are
+tied to code signatures; Windows has no equivalent requirement, which is a real simplification.
 
-### Threading Model
+## The one architectural rule
 
-Input processing happens off the main thread to minimize latency. The `SettingsStore` class provides thread-safe access to settings using `OSAllocatedUnfairLock`, avoiding main thread dispatch for high-frequency gyro updates (~66Hz). Controller-local hot settings that need to cross UI, engine, and HID threads use small lock-protected runtime config objects with explicit last-writer-wins semantics.
+**`JamCon.Core` targets plain `net9.0`. Never add a Windows TFM to it.**
 
-**Input flow:**
-1. An `InputDeviceBackend` receives Game Controller or HID input on its transport thread
-2. The backend emits a common `InputDeviceFrame` with stable identity, timing, raw diagnostics, and motion samples
-3. `InputDeviceBackendRegistry` validates identity, timing, motion/capability consistency, and running lifecycle before forwarding the frame to `InputEngine`'s serial queue
-4. `InputEngine` applies profile/application policy and calls `MouseController` directly
-5. `MouseController` posts `CGEvent`s to the system
-6. Only UI state changes dispatch to `@MainActor`
+| Project | TFM | Contents |
+| --- | --- | --- |
+| `src/JamCon.Core/` | `net9.0` | Protocol decode, gyro math, button mapping, engine policy |
+| `src/JamCon.Bluetooth/` | `net9.0-windows10.0.22621.0` | WinRT GATT transport |
+| `src/JamCon.Output/` | `net9.0-windows10.0.22621.0` | SendInput, ViGEm |
+| `src/JamCon.App/` | `net9.0-windows10.0.22621.0` | WPF tray UI |
+| `tools/Jc2Probe/` | `net9.0-windows10.0.22621.0` | BLE transport spike |
+| `tests/JamCon.Core.Tests/` | `net9.0` | xUnit |
 
-### Key Components
+No WinRT, no P/Invoke and no UI types in `JamCon.Core`. It is the part that stays testable and
+reviewable in isolation, and that property is load-bearing for the whole port. The Windows TFM is
+defined once in `Directory.Build.props` as `$(JamConWindowsTfm)`; don't hardcode it per project.
 
-- **AppState** (`AppState.swift`): Central UI state. Owns managed-device state, persists per-profile settings, and mirrors engine callbacks into SwiftUI.
+Platform-specific code belongs behind an interface defined in Core. Output sinks go behind
+`IOutputSink` specifically, because ViGEmBus is archived upstream and may need replacing.
 
-- **InputDeviceBackend/Registry** (`Devices/InputDeviceBackend.swift`): Common lifecycle, capability, discovery, backend-supplied handedness, management, connection, validation, and high-frequency frame boundary for all device adapters.
+## Ported constants must not drift
 
-- **SenseInputDeviceBackend** (`Devices/SenseInputDeviceBackend.swift`): Complete PlayStation Sense adapter. Combines IOKit stable-identity discovery with Apple's Game Controller input session.
+`docs/JoyCon2-Bluetooth.md` is the authoritative spec — hardware-validated on macOS, and the reason
+this port is not a reverse-engineering project. Treat it as the contract.
 
-- **SenseController** (`SenseController.swift`): PlayStation Sense IOKit discovery and stable identity only. Raw HID input is intentionally not opened on macOS.
+Gyro scale `0.0608506463 °/s/count`, neutral-correction radius 150 counts, nominal stick center 2048.
+These live in `JamCon.Core` and are guarded by `ConstantsDriftTests`. If you change one, you are
+either fixing a transcription error against the spec or introducing a bug — be sure which.
 
-- **JoyConHIDController** (`JoyConHIDController.swift`): Joy-Con Bluetooth HID driver. Handles both left and right Joy-Con with IMU data parsing.
+When porting a decoder, verify against captured frames rather than by reading. A C# decoder that
+diverges subtly from the validated Swift one produces plausible-but-wrong input that is very hard to
+trace back.
 
-- **InputEngine** (`Engine/InputEngine.swift`): Unified input processing pipeline. Coordinates gyro processing, button handling, and radial menu activation.
+## reference/swift/ is read-only
 
-- **GyroProcessor** (`GyroProcessor.swift`): Gyro→mouse translation with bias estimation, One Euro filtering, acceleration curves, and adaptive smoothing modes.
+It holds upstream Swift files copied verbatim at the `macos-reference` tag, as port sources. Nothing
+there is compiled and no C# should reference it. Delete the directory once the port is validated
+against the golden-vector fixture. See `reference/swift/README.md` for the file-to-target mapping.
 
-- **MouseController** (`MouseController.swift`): CGEvent-based mouse/keyboard control. Handles multi-display coordinate conversion. Requires Accessibility permission.
+## Windows behaviors that will bite you
 
-- **SettingsStore** (`Engine/SettingsStore.swift`): Thread-safe settings bridge. UI writes via `update()`, engine reads via `snapshot()`. One-way data flow: UI → Engine.
+Recorded with evidence in `docs/Windows-Port.md`. Briefly:
 
-- **RadialMenuState/View** (`Models/RadialMenuState.swift`, `Views/RadialMenuView.swift`): Joystick-activated pie menu system. State management and SwiftUI view for the radial menu overlay.
+- Use `MOUSEEVENTF_ABSOLUTE`, not `MOUSEEVENTF_MOVE`. Pointer ballistics distort relative motion and
+  make gyro tuning unfalsifiable.
+- `SendInput` takes integers — accumulate the sub-pixel remainder or slow gyro motion vanishes.
+- Prefer `KEYEVENTF_SCANCODE` over virtual keys; many games ignore VK injection.
+- Don't port macOS reconnect timings. Re-derive them empirically.
+- Don't request elevation. UIPI blocks injection into elevated windows; that is documented, not
+  worked around.
+- Don't transliterate `ButtonAction`. Windows actions differ: Task View is `Win+Tab`, media keys are
+  `VK_MEDIA_*`, browser navigation is `VK_BROWSER_BACK`/`FORWARD`.
 
-### Multi-Device Management
+## Planning
 
-JamCon can manage multiple supported devices at the same time:
-- Managed devices are selected explicitly in the UI
-- Button mappings are stored per controller profile
-- Cursor control can be enabled or disabled per profile
-- Multiple managed controllers can stay connected simultaneously
+`docs/JamCon-Win-Plan.md` holds the phase breakdown, architecture decisions and risk register.
+Decisions recorded there are settled; don't reopen them without a reason that gets written down.
+Phase 1 (the BLE transport spike) gates everything after it, and only hardware can answer its open
+questions — whether Windows requires OS-level pairing before GATT works, and whether two Joy-Con 2s
+can sustain ~66 Hz each on one radio.
 
-### Adding Device Families
+## Licensing
 
-Backends own framework/HID objects, discovery, stable identity, handedness, transport lifecycle, report validation, timing, common motion extraction, and copied raw diagnostics. `InputEngine` and the settings UI intentionally own family control-layout interpretation and application policy such as controller profiles, mappings, clutch/scroll behavior, radial menus, and gyro tuning. New adapter tests should use `InputDeviceBackendContractHarness` with a fake transport or framework session so lifecycle and frame-boundary behavior is exercised consistently.
-
-### Button Mapping System
-
-`SenseButtonMappingProfile` and `JoyConButtonMappingProfile` map logical buttons → `ButtonActions` (press + hold actions). Actions can be mouse clicks, keyboard shortcuts, or system actions. Override buttons (clutch/scroll/radial menu) bypass normal mappings to convert input into drag, scrolling, or radial-menu gestures.
-
-## Accessibility Permission
-
-The app requires macOS Accessibility permission for CGEvent posting. If permissions break after code changes:
-1. Stop the app
-2. System Settings → Privacy & Security → Accessibility
-3. Remove JamCon if present, toggle it back on
-4. Run `./dev.sh` to reinstall with stable signature
+MIT, copyright (c) 2024-2025 James Turnshek, retained. Attribution to upstream is a legal obligation.
+Any borrowed third-party code must be MIT-compatible and attributed.
