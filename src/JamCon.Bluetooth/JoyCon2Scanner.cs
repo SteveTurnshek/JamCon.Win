@@ -41,6 +41,23 @@ public sealed class JoyCon2Scanner : IDisposable
     /// </summary>
     public event Action<ulong, byte[]>? UnrecognizedNintendoAdvertisement;
 
+    /// <summary>Total advertisements observed, from any device.</summary>
+    public int TotalAdvertisements => _totalAdvertisements;
+
+    /// <summary>Distinct BLE addresses observed, from any device.</summary>
+    public int DistinctDevices => _allDevices.Count;
+
+    /// <summary>
+    /// Names of nearby devices whose name mentions a Joy-Con or Nintendo, regardless of whether the
+    /// manufacturer data parsed. If a controller shows up here but not as a discovery, the problem
+    /// is the manufacturer-data offsets rather than the controller.
+    /// </summary>
+    public IReadOnlyCollection<string> InterestingNames => _interestingNames.Keys.ToArray();
+
+    private int _totalAdvertisements;
+    private readonly ConcurrentDictionary<ulong, byte> _allDevices = new();
+    private readonly ConcurrentDictionary<string, byte> _interestingNames = new();
+
     public JoyCon2Scanner()
     {
         _watcher = new BluetoothLEAdvertisementWatcher
@@ -77,6 +94,19 @@ public sealed class JoyCon2Scanner : IDisposable
 
     private void OnReceived(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
     {
+        // Counted for every advertisement, so "found nothing" can be distinguished from
+        // "the radio is not actually scanning".
+        Interlocked.Increment(ref _totalAdvertisements);
+        _allDevices.TryAdd(args.BluetoothAddress, 0);
+
+        var localName = args.Advertisement.LocalName;
+        if (!string.IsNullOrWhiteSpace(localName)
+            && (localName.Contains("joy", StringComparison.OrdinalIgnoreCase)
+                || localName.Contains("nintendo", StringComparison.OrdinalIgnoreCase)))
+        {
+            _interestingNames.TryAdd($"{localName} ({args.BluetoothAddress:X12})", 0);
+        }
+
         foreach (var section in args.Advertisement.ManufacturerData)
         {
             var payload = BufferConvert.ToBytes(section.Data);

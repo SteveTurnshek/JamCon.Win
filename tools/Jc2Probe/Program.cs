@@ -23,9 +23,6 @@ if (!radio.IsReady)
     return 4;
 }
 
-Console.WriteLine($"Scanning up to {options.ScanSeconds}s for Nintendo manufacturer data (vendor 0x057E)...");
-Console.WriteLine();
-
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) =>
 {
@@ -35,14 +32,67 @@ Console.CancelKeyPress += (_, e) =>
     cts.Cancel();
 };
 
-var discoveries = await ScanAsync(options, cts.Token);
+List<JoyCon2Discovery> discoveries = [];
+
+if (!options.UsePaired)
+{
+    Console.WriteLine();
+    Console.WriteLine("  >>> PRESS AND HOLD THE SYNC BUTTON NOW <<<");
+    Console.WriteLine("  The pairing window is short, so press SYNC while this scan is counting down,");
+    Console.WriteLine("  not before you started the command.");
+    Console.WriteLine();
+    Console.WriteLine($"Scanning up to {options.ScanSeconds}s for Nintendo manufacturer data (vendor 0x057E)...");
+    Console.WriteLine();
+
+    discoveries = await ScanAsync(options, cts.Token);
+}
+
 if (discoveries.Count == 0)
 {
     Console.WriteLine();
-    Console.WriteLine("No Joy-Con 2 found. Hold the SYNC button until the player LEDs chase, then retry.");
-    Console.WriteLine("If a Nintendo advertisement was reported above but did not parse, the manufacturer-data");
-    Console.WriteLine("offsets differ on Windows — paste the raw bytes and they can be corrected.");
-    return 2;
+    Console.WriteLine("No Joy-Con 2 discovered by scanning. Checking devices already paired to Windows...");
+    Console.WriteLine();
+
+    var paired = await PairedJoyCon2Finder.FindAsync(m => Console.WriteLine($"  {m}"));
+    foreach (var candidate in paired)
+    {
+        Console.WriteLine(
+            $"  paired: {candidate.Name}  addr={candidate.BluetoothAddress:X12}  " +
+            $"jc2-service={(candidate.ServiceConfirmed ? "confirmed" : "unconfirmed")}  " +
+            $"connected={candidate.IsConnected}");
+    }
+
+    var usable = paired.Where(p => p.ServiceConfirmed).ToArray();
+    if (usable.Length > 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"Using {usable.Length} already-paired Joy-Con 2 controller(s) instead of scanning.");
+        discoveries = usable
+            .Select(p => new JoyCon2Discovery(
+                p.BluetoothAddress,
+                new JoyCon2Identity(
+                    JoyCon2Ids.NintendoVendorId,
+                    p.Handedness == JoyCon2Handedness.Left
+                        ? JoyCon2Ids.LeftJoyCon2ProductId
+                        : JoyCon2Ids.RightJoyCon2ProductId,
+                    p.Handedness,
+                    PayloadIncludedCompanyId: false),
+                SignalStrengthDbm: 0,
+                RawManufacturerData: []))
+            .ToList();
+    }
+    else
+    {
+        Console.WriteLine();
+        Console.WriteLine("Nothing usable found. Things to check, in order:");
+        Console.WriteLine("  1. Press SYNC *during* the scan countdown, not before the command starts.");
+        Console.WriteLine("  2. If a Switch 2 is powered on nearby, the Joy-Con reconnects to it instead.");
+        Console.WriteLine("     Turn the console off or move out of its range.");
+        Console.WriteLine("  3. Try a longer window:  --scan-seconds 60");
+        Console.WriteLine("  4. If a Nintendo advertisement was listed above but did not parse, paste the");
+        Console.WriteLine("     raw bytes — the manufacturer-data offsets then need correcting.");
+        return 2;
+    }
 }
 
 var targets = SelectTargets(discoveries, options);
@@ -119,6 +169,8 @@ static async Task<List<JoyCon2Discovery>> ScanAsync(ProbeOptions options, Cancel
     {
         var deadline = Stopwatch.StartNew();
         var wanted = options.Dual ? 2 : 1;
+        var lastSecondShown = -1;
+
         while (deadline.Elapsed.TotalSeconds < options.ScanSeconds && !ct.IsCancellationRequested)
         {
             lock (found)
@@ -126,12 +178,43 @@ static async Task<List<JoyCon2Discovery>> ScanAsync(ProbeOptions options, Cancel
                 if (found.Count >= wanted) break;
             }
 
-            await Task.Delay(200, CancellationToken.None);
+            // A live counter proves the radio is actually receiving. Zero advertisements after
+            // several seconds means scanning is broken, which is a different problem from the
+            // controller not being discoverable.
+            var remaining = (int)Math.Ceiling(options.ScanSeconds - deadline.Elapsed.TotalSeconds);
+            if (remaining != lastSecondShown)
+            {
+                lastSecondShown = remaining;
+                Console.Write(
+                    $"\r  {remaining,3}s left | advertisements: {scanner.TotalAdvertisements,5} " +
+                    $"| distinct devices: {scanner.DistinctDevices,3} | Joy-Con 2 found: {found.Count}   ");
+            }
+
+            await Task.Delay(150, CancellationToken.None);
         }
+
+        Console.WriteLine();
     }
     finally
     {
         scanner.Stop();
+    }
+
+    Console.WriteLine();
+    Console.WriteLine(
+        $"Scan finished: {scanner.TotalAdvertisements} advertisements from " +
+        $"{scanner.DistinctDevices} distinct devices.");
+
+    if (scanner.TotalAdvertisements == 0)
+    {
+        Console.WriteLine(
+            "  [!] Zero advertisements from any device. The radio is on but not receiving — " +
+            "that is a Windows Bluetooth problem, not a controller problem.");
+    }
+
+    foreach (var name in scanner.InterestingNames)
+    {
+        Console.WriteLine($"  [*] Nearby device with a suggestive name: {name}");
     }
 
     lock (found) return found.ToList();
@@ -174,13 +257,15 @@ internal sealed record ProbeOptions(
     bool Dual,
     int ScanSeconds,
     int DurationSeconds,
-    string OutputDirectory)
+    string OutputDirectory,
+    bool UsePaired)
 {
     public static ProbeOptions? Parse(string[] args)
     {
         var dual = false;
-        var scanSeconds = 15;
+        var scanSeconds = 30;
         var durationSeconds = 300;
+        var usePaired = false;
         var output = Path.Combine(Environment.CurrentDirectory, "captures");
 
         for (var i = 0; i < args.Length; i++)
@@ -189,6 +274,9 @@ internal sealed record ProbeOptions(
             {
                 case "--dual":
                     dual = true;
+                    break;
+                case "--use-paired":
+                    usePaired = true;
                     break;
                 case "--scan-seconds" when i + 1 < args.Length:
                     scanSeconds = int.Parse(args[++i]);
@@ -210,16 +298,18 @@ internal sealed record ProbeOptions(
             }
         }
 
-        return new ProbeOptions(dual, scanSeconds, durationSeconds, output);
+        return new ProbeOptions(dual, scanSeconds, durationSeconds, output, usePaired);
     }
 
     private static void PrintUsage()
     {
-        Console.WriteLine("Usage: Jc2Probe [--dual] [--scan-seconds N] [--seconds N] [--out DIR]");
+        Console.WriteLine("Usage: Jc2Probe [--dual] [--use-paired] [--scan-seconds N] [--seconds N] [--out DIR]");
         Console.WriteLine();
         Console.WriteLine("  --dual           Connect to two Joy-Con 2s and measure each one's cadence.");
         Console.WriteLine("                   This is the open question with no prior evidence anywhere.");
-        Console.WriteLine("  --scan-seconds   How long to scan for advertisements (default 15).");
+        Console.WriteLine("  --use-paired     Skip scanning and use a controller already paired to Windows.");
+        Console.WriteLine("                   Use this when the SYNC pairing window keeps closing too fast.");
+        Console.WriteLine("  --scan-seconds   How long to scan for advertisements (default 30).");
         Console.WriteLine("  --seconds        How long to stream before summarizing (default 300).");
         Console.WriteLine("                   The exit criterion is 60+ reports/sec sustained for 5 minutes.");
         Console.WriteLine("  --out            Directory for .bin and .jsonl captures (default ./captures).");

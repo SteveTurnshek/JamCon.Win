@@ -75,6 +75,25 @@ captures are gitignored; promote a chosen capture into `tests/**/Fixtures/` deli
 The probe prints the raw manufacturer-data bytes for every match, and reports which offset
 interpretation succeeded — that is what settles the open advertisement-offset question below.
 
+### Scanning is confirmed working, independent of any controller
+
+**Verified 2026-07-25.** A 12-second scan observed **177 advertisements from 22 distinct devices**
+while no Joy-Con 2 was in pairing mode. That rules out three things at once: the radio receives, the
+`BluetoothLEAdvertisementWatcher` wiring is correct, and `ScanningMode.Active` is collecting normally.
+A later "no Joy-Con 2 found" therefore points at the controller's advertising window, not the stack.
+
+The same run reported **0 paired BLE devices**, confirming the Joy-Con 2 has never been paired to this
+machine — so open question #1 is still genuinely open and has not been accidentally pre-answered by a
+prior pairing.
+
+The probe now prints a live counter during the scan (advertisements, distinct devices, Joy-Con 2
+matches). Zero advertisements after a few seconds means a Windows Bluetooth problem; a healthy count
+with zero matches means the controller is not advertising.
+
+Note that the "Nintendo advertisement that did not parse" warning keys off WinRT's `CompanyId`
+property rather than any payload offset, so it fires even if the offsets below are wrong. A Joy-Con 2
+that advertises while we scan cannot be silently missed.
+
 ### Advertisement offsets differ from CoreBluetooth — reasoned, not yet measured
 
 This is the one place upstream's validated offsets cannot be copied verbatim. Upstream reads the
