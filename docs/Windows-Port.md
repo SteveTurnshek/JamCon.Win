@@ -90,52 +90,145 @@ The probe now prints a live counter during the scan (advertisements, distinct de
 matches). Zero advertisements after a few seconds means a Windows Bluetooth problem; a healthy count
 with zero matches means the controller is not advertising.
 
-Note that the "Nintendo advertisement that did not parse" warning keys off WinRT's `CompanyId`
-property rather than any payload offset, so it fires even if the offsets below are wrong. A Joy-Con 2
-that advertises while we scan cannot be silently missed.
+This section originally claimed the "Nintendo advertisement that did not parse" warning could not miss a Joy-Con 2. That was wrong: it compared the Bluetooth company ID with `0x057E`, the USB vendor ID, while the real company ID is `0x0553` (see below). Fixed in `89ed9da`.
 
-### Advertisement offsets differ from CoreBluetooth — reasoned, not yet measured
+### Advertisement format — verified
 
-This is the one place upstream's validated offsets cannot be copied verbatim. Upstream reads the
-vendor ID at payload offset 5 and product ID at 7, because CoreBluetooth's manufacturer payload
-*includes* the leading two-byte company identifier. WinRT splits those: `CompanyId` is a separate
-property and `.Data` holds only the remainder, which should put the same fields at offsets 3 and 5.
+**Verified 2026-10-30** against the right Joy-Con 2 (`94:8E:6D:0A:16:AA`) in SYNC mode:
 
-`JoyCon2Advertisement` tries the Windows offsets first, falls back to the CoreBluetooth offsets, and
-reports which matched via `PayloadIncludedCompanyId`. Both paths are unit-tested. The first hardware
-run resolves it; record the answer here and then simplify the decoder.
+| Field | Observed |
+| --- | --- |
+| Advertisement type | `ConnectableUndirected`; the scan response carries nothing |
+| Local name | none |
+| Service UUIDs | none |
+| Manufacturer section | company `0x0553`, payload `0100037E0566200001000000000000000F00000000000000` |
 
-## Open questions — Phase 1 transport spike
+- The Bluetooth company ID is **`0x0553`**, Nintendo's SIG identifier — not `0x057E`, which is the
+  USB vendor ID carried *inside* the payload. The first scanner revision compared against `0x057E`
+  and so could never have flagged an unparsed Nintendo advertisement.
+- Vendor ID `0x057E` sits at payload offset 3 and product ID `0x2066` at offset 5: the WinRT offsets,
+  exactly as reasoned from upstream's CoreBluetooth offsets 5 and 7.
+- The advertisement has **no name**. The `Joy-Con 2 (R)` shown in Windows Settings comes from GAP
+  after connecting, so an unpaired Joy-Con 2 can only be identified by manufacturer data.
 
-These are the questions `tools/Jc2Probe` exists to answer. None have been tested against hardware.
+`JoyCon2Advertisement` still carries its CoreBluetooth-offset fallback. It is now known to be dead
+and can be removed.
 
-### 1. Does Windows require OS-level pairing before GATT works?
+## Phase 1 results
 
-**Open. Highest-risk unknown in the project.** CoreBluetooth connects to an unpaired peripheral, so
-upstream never had to solve this. On Windows, `BluetoothLEDevice.FromBluetoothAddressAsync` against
-an unpaired device succeeds for some peripherals and fails for others, and Joy-Con 2 behavior is
-unrecorded. If pairing is required, both the SYNC-button flow and the reconnect story change shape.
+Measured on 2026-10-30 with one right Joy-Con 2 and the machine's MediaTek adapter.
 
-### 2. What notification cadence do we actually get?
+### 1. Does Windows require OS-level pairing before GATT works? — **No. Pairing breaks it.**
 
-**Open.** Windows 11 is documented to cap BLE throughput near 70 Hz; macOS measures 66–67 reports
-per second. Expectation is that Windows lands in the same range, but this is an expectation.
+**Paired** (added through Settings → Add device): the link flapped between connected and
+disconnected every few seconds, visibly in Settings before the probe even ran. Under the probe,
+`GetGattServicesForUuidAsync` returned `Unreachable` on every one of 40 attempts across two minutes,
+with `ConnectionStatusChanged` reporting `Connected` immediately before each failure.
 
-Exit criterion: ≥60 decoded reports/second sustained for 5 minutes on a single Joy-Con.
+**Unpaired** (device removed from Settings, address taken from the advertisement):
+`FromBluetoothAddressAsync` → service discovery `Success` on the first attempt →
+`Service found via UnpairedGatt` → every initialization command acknowledged → five minutes of
+stable streaming with zero disconnects.
 
-### 3. Can two Joy-Con 2s each sustain ~66 Hz simultaneously on one radio?
+Why the paired path fails is **not verified**. The leading hypothesis is that the stored bond makes
+Windows encrypt each reconnect and the controller firmware rejects it. CoreBluetooth never pairs, so
+upstream never met this.
 
-**Open, and no prior evidence exists anywhere.** Upstream's Joy-Con 2 support is explicitly
-single-controller, so this is new ground. Two concurrent BLE connections share radio time and
-Windows exposes little scheduling control. If dual mode degrades both streams badly, that is a scope
-decision to make before the device model and UI are built, not after.
+Consequences for the app:
 
-Exit criterion: a measured number, pass or fail.
+- Never pair a Joy-Con 2 through Windows. Connect by address from its advertisement.
+- A user who has already added one in Settings must remove it. The Phase 5 UI should detect a paired
+  Joy-Con 2 and say so, rather than silently failing.
+- Pressing **SYNC** during a live session drops the link — observed directly. The UI should only ask
+  for SYNC while discovering.
+- Pressing **HOME** wakes a sleeping Switch 2, and the controller reconnects to the console instead.
+  Sleep is not off; the console must be fully powered off or in airplane mode.
 
-### 4. How does the Windows stack handle sleep/wake and range-loss reconnect?
+### 2. What notification cadence do we actually get? — **Same as macOS. Exit criterion met.**
 
-**Open.** macOS's backoff timings should not be ported; re-derive them empirically. Note that the
-Joy-Con 2 firmware has its own reconnect cooldown, which upstream documents and backs off to avoid.
+| Measure | Result |
+| --- | --- |
+| Frames | 20,088 over 300.9 s |
+| Average rate | **66.8 reports/s** (criterion ≥ 60) |
+| Median rate | 66.7 Hz |
+| Per-second range | 64–70; 251 of 298 one-second windows at 66–68 |
+| Worst gap | 102.1 ms (roughly six missed connection events, once) |
+| Undecodable frames | 0 |
+| Zero-filled IMU frames | 1, at startup, as the spec predicts |
+| Disconnects | 0 |
+| ATT `MaxPduSize` | 23 before connect, **512** after |
+| Report-rate request | `0x0085` (133 Hz) accepted |
+
+`RequestPreferredConnectionParameters(ThroughputOptimized)` returned `Success`, but no run was made
+without it, so whether it is *why* the rate matches macOS is untested.
+
+The 102 ms worst gap matters for Phase 2: gyro integration and smoothing must tolerate an occasional
+multi-interval gap rather than assume a fixed 15 ms step.
+
+### 3. Can two Joy-Con 2s each sustain ~66 Hz simultaneously on one radio? — **Still open.**
+
+Next run: `--dual`, both controllers removed from Settings, SYNC pressed on each during the scan.
+
+### 4. How does the Windows stack handle sleep/wake and range-loss reconnect? — **Still open.**
+
+Partial evidence only: SYNC and HOME both end a session, as above. Whether a known, unpaired
+Joy-Con 2 can be reconnected by a normal button press, without SYNC, is untested.
+
+### Initialization sequence — verified
+
+All commands acknowledged in the documented order: `setFeatureMask`, `enableFeatures`,
+`readStickCalibration`, `setPlayerOneLED`, then the report-rate descriptor and the input
+subscription. Factory calibration: center (2077, 2093), positive range (1215, 1179), negative range
+(1213, 1194). The resting stick read 2032–2066 on X and 2025–2079 on Y across separate connections,
+within the 150-count correction radius of that anchor.
+
+### Button bits — verified
+
+Each button pressed alone and held about two seconds; the bit is the one that changed. Bit 0 is the
+low bit of the four-byte field at offset `0x04`.
+
+| Button | Bit | Byte `0x04` value / byte `0x05` value |
+| --- | ---: | --- |
+| Y | 0 | `0x01` |
+| X | 1 | `0x02` |
+| B | 2 | `0x04` |
+| A | 3 | `0x08` |
+| SR | 4 | `0x10` |
+| SL | 5 | `0x20` |
+| R | 6 | `0x40` |
+| ZR | 7 | `0x80` |
+| Plus | 9 | byte `0x05`: `0x02` |
+| Stick click | 10 | byte `0x05`: `0x04` |
+| C | 14 | byte `0x05`: `0x40` |
+
+Every button lands where upstream's Joy-Con family layout already expects it. C's position is new
+information: upstream leaves C unmapped and never recorded it. HOME was deliberately not pressed.
+
+Bits 29–31 (byte `0x07` = `0xE0`) are set at rest and **never changed** during any press. Byte `0x07`
+is most likely status rather than buttons. Upstream's `controlBytes` copies only bytes `0x04`–`0x06`,
+and the C# mapping layer must do the same, or it will read three phantom held buttons.
+
+### Golden-vector fixture
+
+`tests/JamCon.Core.Tests/Fixtures/jc2-right-5min.bin` (byte-exact, format v1) with its `.jsonl`
+sidecar: the 20,088-frame run above. Known content, by sidecar timestamp, for assertions:
+
+| t (s) | Held |
+| ---: | --- |
+| 38.2 | A |
+| 41.1 | B |
+| 46.1 | X |
+| 50.5 | Y |
+| 54.8 | R |
+| 58.9 | ZR |
+| 63.3 | Plus |
+| 68.7 | Stick click |
+| 84.7 | C |
+| 193.9 | SL |
+| 198.1 | SR |
+| 203.2 | C |
+
+Motion alternates between waving the controller and holding it still throughout.
 
 ## Decisions carried in from planning
 

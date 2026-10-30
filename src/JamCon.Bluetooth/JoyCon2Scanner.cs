@@ -53,8 +53,8 @@ public sealed class JoyCon2Scanner : IDisposable
     /// <summary>
     /// Nintendo's Bluetooth SIG company identifier. Not the same number as the USB vendor ID
     /// (0x057E) that the payload carries — the first scanner revision checked the USB ID here and
-    /// so could never have flagged a Nintendo advertisement. 0x0553 is from memory of the SIG
-    /// assigned-numbers list and is unverified; both values are accepted until hardware confirms.
+    /// so could never have flagged a Nintendo advertisement. 0x0553 was confirmed on hardware on
+    /// 2026-10-30 (docs/Windows-Port.md); also matching 0x057E is harmless.
     /// </summary>
     private const ushort NintendoBluetoothCompanyId = 0x0553;
 

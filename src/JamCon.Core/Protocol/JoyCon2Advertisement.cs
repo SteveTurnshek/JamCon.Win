@@ -29,12 +29,11 @@ public readonly record struct JoyCon2Identity(
 /// 3 and 5.
 /// </para>
 /// <para>
-/// That shift is reasoned, not measured. Rather than pick one and risk silently matching nothing,
-/// this decoder tries the Windows offsets first, falls back to the CoreBluetooth offsets, and
-/// reports which one produced the match via
-/// <see cref="JoyCon2Identity.PayloadIncludedCompanyId"/>. The Phase 1 probe logs that flag and the
-/// raw payload bytes, so the first hardware run settles it. Once settled, record the answer in
-/// docs/Windows-Port.md and simplify this.
+/// That shift was reasoned first and then confirmed on hardware: the Joy-Con 2 advertises with
+/// company ID 0x0553 and carries the vendor and product IDs at offsets 3 and 5 of the remaining
+/// payload (docs/Windows-Port.md). The decoder still falls back to the CoreBluetooth offsets and
+/// reports which matched via <see cref="JoyCon2Identity.PayloadIncludedCompanyId"/>; that fallback
+/// is now known to be dead on Windows and can be removed.
 /// </para>
 /// </remarks>
 public static class JoyCon2Advertisement
