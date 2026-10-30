@@ -64,6 +64,7 @@ public sealed class ActionExecutor
         SystemAction.StartMenu => new KeyCombo(0x5B), // VK_LWIN on its own
         SystemAction.ShowDesktop => new KeyCombo(VirtualKeys.D, KeyModifiers.Win),
         SystemAction.AppSwitcher => new KeyCombo(VirtualKeys.Tab, KeyModifiers.Control | KeyModifiers.Alt),
+        SystemAction.Dictation => new KeyCombo(VirtualKeys.H, KeyModifiers.Win),
         _ => new KeyCombo(VirtualKeys.MediaPlayPause),
     };
 

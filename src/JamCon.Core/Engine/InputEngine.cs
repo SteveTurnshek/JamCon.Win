@@ -32,12 +32,21 @@ public sealed class InputEngine
     private readonly Func<InputSettings> _settings;
     private readonly ActionExecutor _executor;
     private readonly Dictionary<string, DeviceState> _devices = new();
+    private readonly IRadialMenuPresenter _radialMenu;
 
-    public InputEngine(IOutputSink output, IHoldScheduler holdScheduler, Func<InputSettings> settings)
+    /// <summary>The device whose button opened the radial menu; only one menu is open at a time.</summary>
+    private string? _radialOwner;
+    private RadialMenuConfiguration? _radialConfig;
+    private double _radialX;
+    private double _radialY;
+
+    public InputEngine(
+        IOutputSink output, IHoldScheduler holdScheduler, Func<InputSettings> settings, IRadialMenuPresenter? radialMenu = null)
     {
         _output = output;
         _holdScheduler = holdScheduler;
         _settings = settings;
+        _radialMenu = radialMenu ?? NullRadialMenuPresenter.Instance;
         _executor = new ActionExecutor(output.Post);
     }
 
@@ -178,10 +187,39 @@ public sealed class InputEngine
             case GyroMode.Scroll when cursorEnabled:
                 _output.Scroll(dx, dy);
                 break;
+            case GyroMode.RadialMenu when _radialOwner == device.Id && _radialConfig is { } config:
+                // Gyro steers the menu's dot instead of the cursor, which holds still meanwhile.
+                var scale = Math.Max(0.1, config.RadialMovementScale);
+                var (x, y, selection) = RadialMenuGeometry.Resolve(_radialX + dx * scale, _radialY + dy * scale, config);
+                _radialX = x;
+                _radialY = y;
+                _radialMenu.Update(x, y, selection);
+                break;
 
-            // None: a drag clutch is mapped but not held. RadialMenu: the overlay is deferred, so
-            // gyro motion is consumed without moving the cursor, as it would be with the menu open.
+            // None: a drag clutch is mapped but not held, so gyro motion does nothing.
         }
+    }
+
+    /// <summary>Ported from beginRadialMenu. The first device to open the menu owns it until release.</summary>
+    private void OpenRadialMenu(DeviceState device)
+    {
+        _radialOwner ??= device.Id;
+        if (_radialOwner != device.Id) return;
+
+        device.RadialMenuButtonHeld = true;
+        _radialX = 0;
+        _radialY = 0;
+
+        // Captured at open, so the menu that runs is the one that was drawn even if settings change.
+        _radialConfig = _settings().RadialMenu;
+        _radialMenu.Show(_radialConfig);
+    }
+
+    private void CloseRadialMenu(RadialMenuItem? selected)
+    {
+        _radialMenu.Hide(selected);
+        _radialOwner = null;
+        _radialConfig = null;
     }
 
     /// <summary>Ported from processJoyConJoystickScroll. Stick up scrolls up.</summary>
@@ -253,7 +291,7 @@ public sealed class InputEngine
             {
                 case DragAction: device.DragButtonHeld = true; break;
                 case ScrollAction: device.ScrollButtonHeld = true; break;
-                case RadialMenuAction: device.RadialMenuButtonHeld = true; break;
+                case RadialMenuAction: OpenRadialMenu(device); break;
             }
 
             return;
@@ -316,13 +354,26 @@ public sealed class InputEngine
         device.PressStates[index] = null;
     }
 
-    private static void ReleaseGyroMode(DeviceState device, ButtonAction action)
+    private void ReleaseGyroMode(DeviceState device, ButtonAction action)
     {
         switch (action)
         {
             case DragAction: device.DragButtonHeld = false; break;
             case ScrollAction: device.ScrollButtonHeld = false; break;
-            case RadialMenuAction: device.RadialMenuButtonHeld = false; break;
+            case RadialMenuAction:
+                device.RadialMenuButtonHeld = false;
+                if (_radialOwner != device.Id || _radialConfig is not { } config) break;
+
+                // Releasing selects whatever slice the dot is in; in the center, nothing.
+                var selection = RadialMenuGeometry.Resolve(_radialX, _radialY, config).Selection;
+                var item = RadialMenuGeometry.ItemFor(selection, config);
+                CloseRadialMenu(item);
+                if (item is not null)
+                {
+                    _executor.Tap(item.Action, new SyntheticOutputOwner(device.Id, "radialMenu.selection", SyntheticOutputRole.RadialMenu));
+                }
+
+                break;
         }
     }
 
@@ -335,6 +386,9 @@ public sealed class InputEngine
             _executor.Execute(state.Actions.Press, false, state.PressOwner);
             if (state.HoldFired) _executor.Execute(state.Actions.Hold, false, state.HoldOwner);
         }
+
+        // A menu open on a device that is going away closes without running anything.
+        if (_radialOwner == device.Id) CloseRadialMenu(null);
 
         Array.Clear(device.PressStates);
         Array.Clear(device.PreviousButtons);

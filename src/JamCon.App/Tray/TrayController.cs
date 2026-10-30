@@ -26,6 +26,7 @@ internal sealed class TrayController : IDisposable
     private readonly MenuItem _statusItem;
     private readonly MenuItem _mouseControlItem;
     private readonly MenuItem _forgetItem;
+    private readonly MenuItem _sleepItem;
     private (TrayTone Tone, bool Light)? _shownIcon;
     private StatusWindow? _window;
 
@@ -43,6 +44,9 @@ internal sealed class TrayController : IDisposable
         _mouseControlItem.Click += (_, _) => SetMouseControl(_mouseControlItem.IsChecked);
 
         _forgetItem = new MenuItem { Header = "Forget this Joy-Con" };
+
+        _sleepItem = new MenuItem { Header = "Put Joy-Con to sleep" };
+        _sleepItem.Click += (_, _) => _link.SleepNow();
         _forgetItem.Click += (_, _) =>
         {
             _settingsFile.Forget();
@@ -98,6 +102,7 @@ internal sealed class TrayController : IDisposable
         menu.Items.Add(new Separator());
         menu.Items.Add(show);
         menu.Items.Add(reconnect);
+        menu.Items.Add(_sleepItem);
         menu.Items.Add(_forgetItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(logs);
@@ -130,6 +135,7 @@ internal sealed class TrayController : IDisposable
         _statusItem.Header = summary;
         _mouseControlItem.IsChecked = settings.IsEnabled;
         _forgetItem.IsEnabled = _settingsFile.Controller is not null;
+        _sleepItem.IsEnabled = status.State == JoyCon2LinkState.Streaming;
 
         var wanted = (TrayIconRenderer.ToneFor(status.State), TrayIconRenderer.TaskbarIsLight());
         if (_shownIcon != wanted)
@@ -150,6 +156,7 @@ internal sealed class TrayController : IDisposable
             JoyCon2LinkState.Reconnecting => $"Reconnecting to {name}…",
             JoyCon2LinkState.BluetoothOff => "Bluetooth is off",
             JoyCon2LinkState.PairedConflict => $"Remove {name} in Windows Bluetooth settings",
+            JoyCon2LinkState.Asleep => $"{name} is asleep; press a button to wake it",
             _ => "Stopped",
         };
     }

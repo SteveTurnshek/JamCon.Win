@@ -74,22 +74,22 @@ public sealed class ButtonMappingProfile
     /// </summary>
     /// <remarks>
     /// Kept as upstream: triggers and shoulders click (ZR/ZL left, R/L right), Plus/Minus middle
-    /// click, X/Up is the drag clutch, A/Left is Escape (hold Ctrl+C), the side rails are arrow
-    /// keys, and C is unmapped.
+    /// click, X/Up is the drag clutch, B/Down holds the radial menu, A/Left is Escape (hold Ctrl+C),
+    /// the side rails are arrow keys, and C is unmapped.
     ///
     /// Changed for Windows: HOME/Capture opens Task View instead of Mission Control (hold:
     /// Play/Pause); stick click is the Browser Back key instead of ⌘[ (hold: Browser Forward
-    /// instead of ⌘]); Y/Right opens Start instead of ^Space, which has no fixed meaning on
-    /// Windows and toggles the IME where one is installed (hold: Enter, as upstream). B/Down opened
-    /// the radial menu, which is deferred, so it is unmapped for now.
+    /// instead of ⌘]). Y/Right was ^Space with Enter on hold: a dictate-then-send pair, ^Space being
+    /// a common dictation-app shortcut on macOS. Windows' built-in dictation is Win+H, so Y/Right
+    /// starts that, and holding it still sends Enter.
     /// </remarks>
     public static ButtonMappingProfile DefaultFor(JoyCon2Handedness handedness)
     {
         var escapeOrCopy = new ButtonActions(
             ButtonAction.Key(VirtualKeys.Escape),
             ButtonAction.Key(VirtualKeys.C, KeyModifiers.Control));
-        var startOrEnter = new ButtonActions(
-            ButtonAction.System(SystemAction.StartMenu),
+        var dictateOrEnter = new ButtonActions(
+            ButtonAction.System(SystemAction.Dictation),
             ButtonAction.Key(VirtualKeys.Return));
         var taskView = new ButtonActions(
             ButtonAction.System(SystemAction.TaskView),
@@ -103,7 +103,8 @@ public sealed class ButtonMappingProfile
             {
                 [JoyCon2Button.A] = escapeOrCopy,
                 [JoyCon2Button.X] = new(ButtonAction.Drag),
-                [JoyCon2Button.Y] = startOrEnter,
+                [JoyCon2Button.B] = new(ButtonAction.RadialMenu),
+                [JoyCon2Button.Y] = dictateOrEnter,
                 [JoyCon2Button.R] = new(ButtonAction.Click(MouseButton.Right)),
                 [JoyCon2Button.ZR] = new(ButtonAction.Click(MouseButton.Left)),
                 [JoyCon2Button.Plus] = new(ButtonAction.Click(MouseButton.Middle)),
@@ -115,8 +116,9 @@ public sealed class ButtonMappingProfile
             : new Dictionary<JoyCon2Button, ButtonActions>
             {
                 [JoyCon2Button.DpadUp] = new(ButtonAction.Drag),
+                [JoyCon2Button.DpadDown] = new(ButtonAction.RadialMenu),
                 [JoyCon2Button.DpadLeft] = escapeOrCopy,
-                [JoyCon2Button.DpadRight] = startOrEnter,
+                [JoyCon2Button.DpadRight] = dictateOrEnter,
                 [JoyCon2Button.L] = new(ButtonAction.Click(MouseButton.Right)),
                 [JoyCon2Button.ZL] = new(ButtonAction.Click(MouseButton.Left)),
                 [JoyCon2Button.Minus] = new(ButtonAction.Click(MouseButton.Middle)),

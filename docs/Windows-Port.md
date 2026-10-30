@@ -185,8 +185,25 @@ SYNC and HOME both end a session, as above. Measured so far with the tray app (2
   service discovery returned `Unreachable`, and the link dropped within a second. Unverified
   explanation: SYNC was being pressed during those attempts, which is known to drop a live link.
 
-Still untested: range loss, Bluetooth off/on, PC sleep/wake, and reconnecting after a drop with a
-normal button press.
+- **Long session:** a later session streamed for 89 minutes with no drop, until closed for an update.
+- **Relaunch after 35 s:** this time the device was already `Disconnected` and never answered the
+  direct attempts. Windows had let the link go in the longer gap, and the controller, with no link,
+  went to sleep. So relaunch reconnects on its own only within roughly the 10–20 s Windows keeps
+  an orphaned link; after that the controller needs waking.
+
+Still untested: range loss, Bluetooth off/on, PC sleep/wake, and — now the important one —
+whether a normal button press wakes a sleeping controller, or only SYNC does. Upstream says the
+controller "may not advertise again by itself" after the host sleeps.
+
+**Idle sleep.** After 10 minutes without use (`ActivityDetector`: a button, the stick pushed, or
+motion over 20 °/s), the link disconnects deliberately so the controller can power down, and enters
+an `Asleep` state. Disconnecting is the only sleep mechanism known: upstream has no power-off
+command. While asleep the link accepts any advertisement at all from the remembered address as a
+wake signal, including directed advertisements that carry no manufacturer data, but ignores
+everything for the first 10 s so a controller briefly advertising on its way to sleep is not
+reconnected. A controller that wakes and then goes unused for 60 s sleeps again. Disposing the
+session now also releases the GATT service and clears `MaintainConnection`, since an undisposed
+handle could keep Windows' link, and therefore the controller, awake.
 
 **Test harness:** the tray app (`src/JamCon.App`), which runs `JoyCon2Link` continuously and logs
 every transition to `%LOCALAPPDATA%\JamCon.Win\logs\jamcon-YYYYMMDD.log`: drop reason, how the
@@ -302,6 +319,29 @@ Each would have produced subtly wrong behaviour rather than an error:
   upstream's `accuracy:` assertions are translated to the tolerance overload.
 - **H.NotifyIcon's `ForceCreate` enables Windows Efficiency Mode by default**, which throttles the
   process. Declined explicitly. Version 2.4.x also ships no .NET 9 build, so 2.3.2 is pinned.
+- **Windows 11 can ignore `timeBeginPeriod` for a process with no visible window**, which describes
+  a tray app. 1 ms sleeps then quietly become 15.6 ms, which would cap motion at ~64 Hz. The pacing
+  loop uses a high-resolution waitable timer instead, and the process opts out of power throttling
+  (EcoQoS and the timer-resolution rule) via `SetProcessInformation`.
+- **The .NET 10 SDK on CI compiles as C# 14**, where `array.Reverse()` binds to the in-place span
+  overload and returns void. `global.json` pins the 9.0 SDK so CI and local builds agree.
+
+### Smooth motion
+
+The controller reports at ~67 Hz, so emitting each report's motion at once moves the cursor in
+15 ms steps: visibly coarser than a mouse on a 120 Hz display. `PacedOutputSink` spreads each
+report's cursor and scroll delta evenly over the expected interval to the next report and emits at
+240 Hz. Total motion is conserved exactly (tested); the cost is about 7.5 ms of average latency.
+Any click or key first flushes pending motion, so it lands where the cursor was heading.
+
+### Radial menu
+
+Ported from upstream: hold B, point, release. The overlay is a transparent, click-through,
+never-activating topmost window, so the selected key reaches the app that had focus. Upstream hid
+the system cursor while the menu was open; Windows has no supported way to hide another app's
+cursor, so the cursor holds still instead. Drawing and selection share one angle function, and a
+test checks the middle of every drawn slice selects that slice. A preview (`JamCon.App.exe
+--preview-radial-menu`) renders it without a controller; verified on this machine's scaled display.
 
 ## Decisions carried in from planning
 

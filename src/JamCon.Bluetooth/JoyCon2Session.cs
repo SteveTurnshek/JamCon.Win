@@ -46,6 +46,7 @@ public sealed class JoyCon2Session : IAsyncDisposable
     private GattCharacteristic? _commandResponse;
     private GattCharacteristic? _commonInput;
     private GattDescriptor? _reportRateDescriptor;
+    private GattDeviceService? _service;
 
     private TaskCompletionSource<byte[]>? _pendingResponse;
     private readonly Stopwatch _clock = new();
@@ -307,6 +308,8 @@ public sealed class JoyCon2Session : IAsyncDisposable
 
     private async Task<bool> AcquireCharacteristicsAsync(GattDeviceService service)
     {
+        // Held so it can be disposed: an undisposed service keeps Windows' link to the controller open.
+        _service = service;
         _commandWrite = await FindCharacteristicAsync(service, JoyCon2Ids.CommandWrite, nameof(JoyCon2Ids.CommandWrite));
         _commandResponse = await FindCharacteristicAsync(service, JoyCon2Ids.CommandResponse, nameof(JoyCon2Ids.CommandResponse));
         _commonInput = await FindCharacteristicAsync(service, JoyCon2Ids.CommonInput, nameof(JoyCon2Ids.CommonInput));
@@ -491,7 +494,24 @@ public sealed class JoyCon2Session : IAsyncDisposable
         if (_commandResponse is not null) _commandResponse.ValueChanged -= OnCommandResponse;
         if (_device is not null) _device.ConnectionStatusChanged -= OnConnectionStatusChanged;
 
-        _gattSession?.Dispose();
+        // Release every WinRT handle so Windows actually drops the link. An unpaired device's link
+        // lives as long as some handle references it: after a process exit Windows was seen holding
+        // it open, and a link that stays up is a controller that never gets to sleep.
+        if (_gattSession is not null)
+        {
+            try
+            {
+                _gattSession.MaintainConnection = false;
+            }
+            catch (Exception)
+            {
+                // Already closed or the device is gone; disposal below still applies.
+            }
+
+            _gattSession.Dispose();
+        }
+
+        _service?.Dispose();
         _device?.Dispose();
         await Task.CompletedTask;
     }

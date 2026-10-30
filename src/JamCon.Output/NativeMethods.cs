@@ -105,6 +105,44 @@ internal static unsafe partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool EnumDisplayMonitors(nint hdc, nint clip, delegate* unmanaged<nint, nint, Rect*, nint, int> callback, nint data);
 
+    public const uint CreateWaitableTimerHighResolution = 0x2;
+    public const uint TimerAllAccess = 0x1F0003;
+    public const uint Infinite = 0xFFFFFFFF;
+
+    public const int ProcessPowerThrottling = 4;
+    public const uint PowerThrottlingCurrentVersion = 1;
+    public const uint PowerThrottlingExecutionSpeed = 0x1;
+    public const uint PowerThrottlingIgnoreTimerResolution = 0x4;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PowerThrottlingState
+    {
+        public uint Version;
+        public uint ControlMask;
+        public uint StateMask;
+    }
+
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateWaitableTimerExW", SetLastError = true)]
+    public static partial nint CreateWaitableTimerEx(nint attributes, nint name, uint flags, uint access);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetWaitableTimer(nint timer, in long dueTime, int period, nint completion, nint argument, [MarshalAs(UnmanagedType.Bool)] bool resume);
+
+    [LibraryImport("kernel32.dll")]
+    public static partial uint WaitForSingleObject(nint handle, uint milliseconds);
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool CloseHandle(nint handle);
+
+    [LibraryImport("kernel32.dll")]
+    public static partial nint GetCurrentProcess();
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetProcessInformation(nint process, int informationClass, ref PowerThrottlingState information, uint size);
+
     [LibraryImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
     public static partial uint TimeBeginPeriod(uint period);
 

@@ -65,17 +65,28 @@ Default buttons for a right Joy-Con 2:
 | R | Right click | |
 | + | Middle click | |
 | X | Move cursor while held | |
+| B | Radial menu: hold, point at a slice, release | |
 | A | Esc | Ctrl+C |
-| Y | Start menu | Enter |
+| Y | Dictation (Win+H) | Enter |
 | HOME | Task View | Play/Pause |
 | Stick click | Browser back | Browser forward |
 | SL / SR | Down / Up arrow | |
+| C | Nothing | |
 | Stick | Scroll | |
 
-Right-click the tray icon to turn **Mouse control** off (anything held is released at once), to
-recalibrate the gyro, or to open the log folder. Left-click it for a live status window. Settings,
-including button mappings and gyro tuning, are in `%LOCALAPPDATA%\JamCon.Win\settings.json` and can
-be edited by hand while JamCon is closed; a settings screen is still to come.
+The radial menu's default slices are the four arrow keys, as upstream. While it is open the cursor
+holds still and a dot follows the controller instead.
+
+After 10 minutes without use, JamCon disconnects so the Joy-Con can sleep and save its battery.
+Press a button to wake it; if that doesn't bring it back, hold SYNC. Right-click the tray icon to
+put it to sleep sooner, turn **Mouse control** off (anything held is released at once), recalibrate
+the gyro, or open the log folder. Left-click it for a live status window.
+
+Settings, including button mappings, gyro tuning and the radial menu, are in
+`%LOCALAPPDATA%\JamCon.Win\settings.json` and can be edited by hand while JamCon is closed; a
+settings screen is still to come. `IdleSleepMinutes` sets the sleep delay (0 disables it).
+`SmoothMotion` re-emits the controller's ~67 Hz motion at 240 Hz for smooth movement on
+high-refresh displays, at a cost of about 7.5 ms of latency; set it to `false` to turn that off.
 
 ## Features
 
@@ -86,7 +97,9 @@ Working:
   acceleration
 - Buttons mapped to clicks, keys and Windows actions, with separate tap and hold actions
 - Stick scrolling
-- Automatic reconnection to a remembered controller
+- Upstream's radial menu
+- Smooth 240 Hz cursor and scroll output from the controller's ~67 Hz reports
+- Automatic reconnection to a remembered controller, and idle sleep to save its battery
 - System tray app with live status and a log
 
 Planned:
@@ -94,7 +107,6 @@ Planned:
 - A settings screen for button mapping and gyro tuning
 - Testing the left Joy-Con 2 on hardware (the code supports it), and two Joy-Cons as one device
 - Virtual Xbox gamepad output via ViGEm, as a second output mode
-- Upstream's radial menu
 - An installer
 
 ## Building

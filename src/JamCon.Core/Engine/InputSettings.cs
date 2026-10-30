@@ -30,6 +30,8 @@ public sealed record InputSettings
     public double JoystickScrollSpeed { get; init; } = DefaultJoystickScrollSpeed;
     public double JoystickScrollAcceleration { get; init; } = DefaultJoystickScrollAcceleration;
 
+    public RadialMenuConfiguration RadialMenu { get; init; } = RadialMenuConfiguration.Default;
+
     public ButtonMappingProfile ButtonsFor(JoyCon2Handedness handedness) =>
         handedness == JoyCon2Handedness.Right ? RightButtons : LeftButtons;
 }

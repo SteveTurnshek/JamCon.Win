@@ -91,7 +91,7 @@ public class DefaultProfileTests
             new ButtonActions(ButtonAction.System(SystemAction.TaskView), ButtonAction.System(SystemAction.PlayPause)),
             profile.ActionsFor(JoyCon2Button.Home));
         Assert.Equal(ButtonActions.Empty, profile.ActionsFor(JoyCon2Button.C));
-        Assert.Equal(ButtonActions.Empty, profile.ActionsFor(JoyCon2Button.B));
+        Assert.Equal(new ButtonActions(ButtonAction.RadialMenu), profile.ActionsFor(JoyCon2Button.B));
         Assert.Equal(ButtonMappingProfile.DefaultHoldThreshold, profile.HoldThreshold);
         Assert.True(profile.HasDragMapping);
     }

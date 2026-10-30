@@ -200,7 +200,12 @@ public class GoldenVectorTests
     {
         var output = new RecordingOutputSink();
         var scheduler = new ManualHoldScheduler();
-        var engine = new InputEngine(output, scheduler, () => InputSettings.Default);
+        // B is unmapped here, as it was when the capture was recorded; the radial menu replay is separate.
+        var settings = InputSettings.Default with
+        {
+            RightButtons = InputSettings.Default.RightButtons.WithActions(JoyCon2Button.B, ButtonActions.Empty),
+        };
+        var engine = new InputEngine(output, scheduler, () => settings);
         engine.DeviceConnected("jc", JoyCon2Handedness.Right, CaptureCalibration);
 
         var timedEvents = new List<(double Time, SyntheticOutputEvent Event)>();
@@ -256,5 +261,54 @@ public class GoldenVectorTests
             deliberate);
 
         Assert.Equal(0, engine.ActiveOutputCount);
+    }
+
+    private sealed class TimedPresenter(Func<double> clock) : IRadialMenuPresenter
+    {
+        public List<double> ShownAt { get; } = [];
+        public List<(double Time, RadialMenuItem? Item)> Hidden { get; } = [];
+        public void Show(RadialMenuConfiguration configuration) => ShownAt.Add(clock());
+        public void Update(double offsetX, double offsetY, RadialMenuSelection? selection) { }
+        public void Hide(RadialMenuItem? selected) => Hidden.Add((clock(), selected));
+    }
+
+    /// <summary>
+    /// With the default profile, the B press in the capture opens the radial menu exactly once and
+    /// closes it on release, and whatever it selected is the only extra output.
+    /// </summary>
+    [Fact]
+    public void EngineReplayOpensAndClosesTheRadialMenuAroundTheBPress()
+    {
+        var output = new RecordingOutputSink();
+        var scheduler = new ManualHoldScheduler();
+        var now = 0.0;
+        var menu = new TimedPresenter(() => now);
+        var engine = new InputEngine(output, scheduler, () => InputSettings.Default, menu);
+        engine.DeviceConnected("jc", JoyCon2Handedness.Right, CaptureCalibration);
+
+        var eventsDuringB = new List<SyntheticOutputEvent>();
+        foreach (var frame in Frames.Value)
+        {
+            Assert.True(JoyCon2ReportDecoder.TryDecode(frame.Payload, out var report));
+            now = frame.Timestamp;
+            var before = output.Events.Count;
+            scheduler.Advance(now);
+            engine.ProcessFrame("jc", report, now);
+            scheduler.StampPending(now);
+            if (now is > 41.0 and < 43.7) eventsDuringB.AddRange(output.Events.Skip(before));
+        }
+
+        var shownInWindow = menu.ShownAt.Where(t => t is > 41.0 and < 41.4).ToArray();
+        Assert.Single(shownInWindow);
+        var close = Assert.Single(menu.Hidden, h => h.Time is > 43.2 and < 43.7);
+
+        if (close.Item?.Action is KeyPressAction key)
+        {
+            Assert.Equal([RecordingOutputSink.Down(key.Combo), RecordingOutputSink.Up(key.Combo)], eventsDuringB);
+        }
+        else
+        {
+            Assert.Empty(eventsDuringB);
+        }
     }
 }

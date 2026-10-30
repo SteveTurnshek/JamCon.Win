@@ -35,6 +35,7 @@ public static class VirtualKeys
     public const ushort Down = 0x28;
     public const ushort C = 0x43;
     public const ushort D = 0x44;
+    public const ushort H = 0x48;
     public const ushort BrowserBack = 0xA6;
     public const ushort BrowserForward = 0xA7;
     public const ushort MediaPlayPause = 0xB3;
@@ -90,6 +91,9 @@ public enum SystemAction
 
     /// <summary>Ctrl+Alt+Tab, which stays open without a held key. Replaces ⌘Tab.</summary>
     AppSwitcher,
+
+    /// <summary>Win+H: Windows voice typing. Replaces the ^Space dictation shortcut upstream used.</summary>
+    Dictation,
 
     /// <summary>The media Play/Pause key.</summary>
     PlayPause,
@@ -147,6 +151,7 @@ public sealed record SystemShortcutAction(SystemAction Action) : ButtonAction
         SystemAction.StartMenu => "Start Menu",
         SystemAction.ShowDesktop => "Show Desktop",
         SystemAction.AppSwitcher => "App Switcher",
+        SystemAction.Dictation => "Dictation",
         _ => "Play/Pause",
     };
 }
@@ -166,13 +171,13 @@ public sealed record ScrollAction : ButtonAction
 }
 
 /// <summary>
-/// Upstream's radial menu. Kept so saved profiles round-trip, but the overlay is deferred past the
-/// first release (plan, Phase 5), so for now holding it does nothing.
+/// Opens the radial menu while held: gyro moves a dot to pick a slice, and releasing runs it.
+/// See <see cref="RadialMenuConfiguration"/>.
 /// </summary>
 public sealed record RadialMenuAction : ButtonAction
 {
     public override bool IsGyroMode => true;
-    public override string DisplayName => "Radial Menu (not yet available)";
+    public override string DisplayName => "Radial Menu";
 }
 
 /// <summary>A tap action and an optional long-press action.</summary>

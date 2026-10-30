@@ -47,6 +47,12 @@ public sealed class JoyCon2Scanner : IDisposable
     /// </summary>
     public event Action<string>? Diagnostic;
 
+    /// <summary>
+    /// Any advertisement at all from <see cref="WatchAddress"/>, including directed ones that carry
+    /// no manufacturer data and so never parse as a Joy-Con 2.
+    /// </summary>
+    public event Action<BluetoothLEAdvertisementType>? WatchedAddressSeen;
+
     /// <summary>An address to dump in full whenever it advertises, e.g. a known controller.</summary>
     public ulong? WatchAddress { get; init; }
 
@@ -157,6 +163,7 @@ public sealed class JoyCon2Scanner : IDisposable
         }
 
         EmitDiagnostic(args, localName);
+        if (args.BluetoothAddress == WatchAddress) WatchedAddressSeen?.Invoke(args.AdvertisementType);
 
         foreach (var section in args.Advertisement.ManufacturerData)
         {

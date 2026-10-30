@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using JamCon.Core.Diagnostics;
+using JamCon.Core.Engine;
 using JamCon.Core.Protocol;
 
 namespace JamCon.Bluetooth;
@@ -20,6 +21,9 @@ public enum JoyCon2LinkState
 
     /// <summary>Windows has the controller paired, which is known to stop GATT working.</summary>
     PairedConflict,
+
+    /// <summary>Disconnected on purpose after going unused, so the controller can sleep.</summary>
+    Asleep,
 }
 
 /// <summary>A controller worth remembering across restarts.</summary>
@@ -75,6 +79,18 @@ public sealed class JoyCon2Link : IAsyncDisposable
     /// </summary>
     private const int SessionDiscoveryAttempts = 3;
 
+    /// <summary>
+    /// After deliberately disconnecting, wake signals are ignored this long, so a controller that
+    /// briefly advertises on its way to sleep is not reconnected straight away.
+    /// </summary>
+    private static readonly TimeSpan SleepSettleTime = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// After waking from sleep, if this passes with no use, sleep again. Guards against a controller
+    /// that reconnects on its own without anyone touching it.
+    /// </summary>
+    private static readonly TimeSpan WakeProbation = TimeSpan.FromSeconds(60);
+
     private readonly Action<string> _log;
     private readonly object _gate = new();
     private readonly CancellationTokenSource _lifetime = new();
@@ -97,7 +113,42 @@ public sealed class JoyCon2Link : IAsyncDisposable
     private string? _lastDropReason;
     private TimeSpan? _lastReconnectDuration;
 
+    private TimeSpan? _idleTimeout;
+    private long _lastActivityTimestamp;
+    private bool _asleep;
+    private DateTimeOffset _asleepSince;
+    private bool _wakeProbation;
+    private bool _sleepRequested;
+
     public JoyCon2Link(Action<string> log) => _log = log;
+
+    /// <summary>
+    /// Disconnect after this long without use (see <see cref="ActivityDetector"/>) so the controller
+    /// can sleep and save its battery. Null disables idle sleep.
+    /// </summary>
+    public TimeSpan? IdleTimeout
+    {
+        get
+        {
+            lock (_gate) return _idleTimeout;
+        }
+        set
+        {
+            lock (_gate) _idleTimeout = value;
+        }
+    }
+
+    /// <summary>Disconnects now so the controller sleeps, as if it had gone unused.</summary>
+    public void SleepNow()
+    {
+        lock (_gate)
+        {
+            if (_state != JoyCon2LinkState.Streaming) return;
+            _sleepRequested = true;
+            _restartReason = "put to sleep from the tray menu";
+            _attempt?.Cancel();
+        }
+    }
 
     /// <summary>Raised on every state or detail change, not per frame.</summary>
     public event Action<JoyCon2LinkStatus>? StatusChanged;
@@ -187,12 +238,24 @@ public sealed class JoyCon2Link : IAsyncDisposable
                     }
 
                     var known = Known;
-                    var waiting = HasDropped ? JoyCon2LinkState.Reconnecting : JoyCon2LinkState.Searching;
-                    SetState(waiting, known is { } k
-                        ? $"Waiting for {k.DisplayName}. Press any button except HOME to wake it."
-                        : "Hold SYNC on a Joy-Con 2 until its lights chase.");
+                    var (asleep, asleepSince) = SleepState;
+                    var waiting = asleep
+                        ? JoyCon2LinkState.Asleep
+                        : HasDropped ? JoyCon2LinkState.Reconnecting : JoyCon2LinkState.Searching;
+                    SetState(waiting, asleep
+                        ? "Asleep to save battery. Press a button to wake it; if that doesn't work, hold SYNC."
+                        : known is { } k
+                            ? $"Waiting for {k.DisplayName}. Press any button except HOME to wake it."
+                            : "Hold SYNC on a Joy-Con 2 until its lights chase.");
 
-                    var target = await FindAsync(known, lastDirectAttempt, ct);
+                    // While asleep: no direct attempts, which could reconnect a link Windows has not yet
+                    // torn down, and no wake signals until the controller has had time to settle.
+                    var target = await FindAsync(
+                        known,
+                        lastDirectAttempt,
+                        allowDirect: !asleep,
+                        ignoreBefore: asleep ? asleepSince + SleepSettleTime : DateTimeOffset.MinValue,
+                        ct);
                     if (target is null) continue;
                     if (target.Value.Via == ConnectVia.Direct) lastDirectAttempt = DateTimeOffset.Now;
 
@@ -220,21 +283,31 @@ public sealed class JoyCon2Link : IAsyncDisposable
                             SetState(JoyCon2LinkState.Reconnecting, $"Connection lost: {outcome.Reason}.");
                             await Task.Delay(QuietAfterDrop, ct);
                             break;
+
+                        case OutcomeKind.Idle:
+                            failures = 0;
+                            RecordDrop(outcome.Reason!);
+                            EnterSleep(outcome.Reason!);
+                            break;
                     }
                 }
                 catch (OperationCanceledException) when (!lifetime.IsCancellationRequested)
                 {
                     string reason;
                     bool wasStreaming;
+                    bool sleep;
                     lock (_gate)
                     {
                         reason = _restartReason ?? "restart requested";
                         _restartReason = null;
                         wasStreaming = _state == JoyCon2LinkState.Streaming;
+                        sleep = _sleepRequested;
+                        _sleepRequested = false;
                     }
 
                     _log($"Restarting: {reason}.");
                     if (wasStreaming) RecordDrop(reason);
+                    if (sleep && wasStreaming) EnterSleep(reason);
                 }
                 catch (OperationCanceledException)
                 {
@@ -278,13 +351,31 @@ public sealed class JoyCon2Link : IAsyncDisposable
     /// occasionally tries a direct connection instead, in case it reconnects without advertising
     /// in a form the watcher reports. Returns null to let the loop re-check the radio and go again.
     /// </summary>
-    private async Task<Target?> FindAsync(KnownJoyCon2? known, DateTimeOffset lastDirectAttempt, CancellationToken ct)
+    private async Task<Target?> FindAsync(
+        KnownJoyCon2? known, DateTimeOffset lastDirectAttempt, bool allowDirect, DateTimeOffset ignoreBefore, CancellationToken ct)
     {
         using var scanner = new JoyCon2Scanner { WatchAddress = known?.Address };
-        var found = new TaskCompletionSource<JoyCon2Discovery>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var found = new TaskCompletionSource<(KnownJoyCon2 Controller, string Description)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
         scanner.Discovered += d =>
         {
-            if (known is null || d.BluetoothAddress == known.Value.Address) found.TrySetResult(d);
+            if (DateTimeOffset.Now < ignoreBefore) return;
+            if (known is null || d.BluetoothAddress == known.Value.Address)
+            {
+                found.TrySetResult((
+                    new KnownJoyCon2(d.BluetoothAddress, d.Identity.Handedness),
+                    $"Advertisement from {d.DisplayName} {Format(d.BluetoothAddress)} (rssi {d.SignalStrengthDbm} dBm)."));
+            }
+        };
+
+        // A controller reconnecting to its last host may send a directed advertisement, which carries
+        // no manufacturer data and so never parses as a Joy-Con 2. From the remembered address,
+        // any advertisement at all is a reason to try connecting.
+        scanner.WatchedAddressSeen += type =>
+        {
+            if (known is not { } k || DateTimeOffset.Now < ignoreBefore) return;
+            found.TrySetResult((k, $"{type} advertisement from {k.DisplayName} {Format(k.Address)}."));
         };
 
         try
@@ -302,9 +393,9 @@ public sealed class JoyCon2Link : IAsyncDisposable
             var window = Task.Delay(AdvertisementWindow, ct);
             if (await Task.WhenAny(found.Task, window) == found.Task)
             {
-                var d = found.Task.Result;
-                _log($"Advertisement from {d.DisplayName} {Format(d.BluetoothAddress)} (rssi {d.SignalStrengthDbm} dBm).");
-                return new Target(new KnownJoyCon2(d.BluetoothAddress, d.Identity.Handedness), ConnectVia.Advertisement);
+                var (controller, description) = found.Task.Result;
+                _log(description);
+                return new Target(controller, ConnectVia.Advertisement);
             }
 
             await window; // surfaces cancellation
@@ -314,7 +405,7 @@ public sealed class JoyCon2Link : IAsyncDisposable
             scanner.Stop();
         }
 
-        if (known is { } k && DateTimeOffset.Now - lastDirectAttempt >= DirectAttemptInterval)
+        if (allowDirect && known is { } k && DateTimeOffset.Now - lastDirectAttempt >= DirectAttemptInterval)
         {
             _log($"No advertisement from {k.DisplayName} in {AdvertisementWindow.TotalSeconds:F0} s; trying a direct connection.");
             return new Target(k, ConnectVia.Direct);
@@ -323,7 +414,7 @@ public sealed class JoyCon2Link : IAsyncDisposable
         return null;
     }
 
-    private enum OutcomeKind { Failed, PairedConflict, Dropped }
+    private enum OutcomeKind { Failed, PairedConflict, Dropped, Idle }
 
     private readonly record struct Outcome(OutcomeKind Kind, string? Reason = null);
 
@@ -375,6 +466,11 @@ public sealed class JoyCon2Link : IAsyncDisposable
                 {
                     return new Outcome(OutcomeKind.Dropped, $"no reports for {StallTimeout.TotalSeconds:F0} s");
                 }
+
+                if (IdleLimit() is { } limit && SinceLastActivity() > limit)
+                {
+                    return new Outcome(OutcomeKind.Idle, $"unused for {Describe(limit)}");
+                }
             }
         }
         finally
@@ -414,14 +510,64 @@ public sealed class JoyCon2Link : IAsyncDisposable
         StreamStarted?.Invoke(controller, calibration);
 
         // Open the frame gate only now, so no frame can be delivered ahead of StreamStarted.
+        bool wokeFromSleep;
         lock (_gate)
         {
             _streamingController = controller;
             _lastFrameTimestamp = Stopwatch.GetTimestamp();
+            _lastActivityTimestamp = _lastFrameTimestamp;
+            wokeFromSleep = _asleep;
+            _asleep = false;
+            _wakeProbation = wokeFromSleep;
+        }
+
+        if (wokeFromSleep)
+        {
+            _log($"Woke from sleep. Sleeping again after {Describe(WakeProbation)} unless it is used.");
         }
 
         SetState(JoyCon2LinkState.Streaming, $"{controller.DisplayName} connected.");
     }
+
+    /// <summary>Marks the link asleep after a deliberate disconnect. Sleep is not a drop.</summary>
+    private void EnterSleep(string reason)
+    {
+        lock (_gate)
+        {
+            _asleep = true;
+            _asleepSince = DateTimeOffset.Now;
+            _wakeProbation = false;
+            _droppedAt = null;
+        }
+
+        _log($"Asleep ({reason}). Disconnected so the controller can power down.");
+    }
+
+    private (bool Asleep, DateTimeOffset Since) SleepState
+    {
+        get
+        {
+            lock (_gate) return (_asleep, _asleepSince);
+        }
+    }
+
+    /// <summary>The idle limit in force: the configured timeout, or the short probation after a wake.</summary>
+    private TimeSpan? IdleLimit()
+    {
+        lock (_gate)
+        {
+            if (_idleTimeout is not { } timeout) return null;
+            return _wakeProbation && WakeProbation < timeout ? WakeProbation : timeout;
+        }
+    }
+
+    private TimeSpan SinceLastActivity()
+    {
+        lock (_gate) return Stopwatch.GetElapsedTime(_lastActivityTimestamp);
+    }
+
+    private static string Describe(TimeSpan span) =>
+        span.TotalMinutes >= 1 ? $"{span.TotalMinutes:0.#} min" : $"{span.TotalSeconds:0} s";
 
     private void RecordDrop(string reason)
     {
@@ -450,7 +596,15 @@ public sealed class JoyCon2Link : IAsyncDisposable
             _frames++;
             _lastFrameTimestamp = Stopwatch.GetTimestamp();
             _cadence.Record(frame.TimestampSeconds);
-            if (frame.Report is { } report) _lastReport = report;
+            if (frame.Report is { } report)
+            {
+                _lastReport = report;
+                if (ActivityDetector.IsActive(report, _streamingController.Value.Handedness))
+                {
+                    _lastActivityTimestamp = _lastFrameTimestamp;
+                    _wakeProbation = false;
+                }
+            }
         }
 
         FrameReceived?.Invoke(frame);

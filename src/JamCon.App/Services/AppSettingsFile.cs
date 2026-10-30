@@ -29,12 +29,34 @@ internal sealed class AppSettingsFile
     private readonly object _gate = new();
     private KnownJoyCon2? _controller;
     private InputSettings _input;
+    private int _idleSleepMinutes = DefaultIdleSleepMinutes;
+    private bool _smoothMotion = true;
+
+    public const int DefaultIdleSleepMinutes = 10;
 
     public AppSettingsFile(string path, Action<string> log)
     {
         _path = path;
         _log = log;
         (_controller, _input) = Load();
+    }
+
+    /// <summary>Disconnect an unused controller after this many minutes so it can sleep. 0 disables.</summary>
+    public int IdleSleepMinutes
+    {
+        get
+        {
+            lock (_gate) return _idleSleepMinutes;
+        }
+    }
+
+    /// <summary>Spread controller motion out to a high output rate. Costs ~7.5 ms of latency.</summary>
+    public bool SmoothMotion
+    {
+        get
+        {
+            lock (_gate) return _smoothMotion;
+        }
     }
 
     public KnownJoyCon2? Controller
@@ -103,7 +125,18 @@ internal sealed class AppSettingsFile
 
         using (document)
         {
-            return (LoadController(document.RootElement), LoadInput(document.RootElement));
+            var root = document.RootElement;
+            if (root.TryGetProperty("IdleSleepMinutes", out var idle) && idle.TryGetInt32(out var minutes) && minutes >= 0)
+            {
+                _idleSleepMinutes = minutes;
+            }
+
+            if (root.TryGetProperty("SmoothMotion", out var smooth) && smooth.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                _smoothMotion = smooth.GetBoolean();
+            }
+
+            return (LoadController(root), LoadInput(root));
         }
     }
 
@@ -148,6 +181,8 @@ internal sealed class AppSettingsFile
             ControllerAddress = _controller is { } c ? JoyCon2Link.Format(c.Address) : null,
             ControllerHandedness = _controller?.Handedness.ToString(),
             Input = _input,
+            IdleSleepMinutes = _idleSleepMinutes,
+            SmoothMotion = _smoothMotion,
         };
 
         try
@@ -167,6 +202,8 @@ internal sealed class AppSettingsFile
     {
         public string? ControllerAddress { get; set; }
         public string? ControllerHandedness { get; set; }
+        public int IdleSleepMinutes { get; set; } = DefaultIdleSleepMinutes;
+        public bool SmoothMotion { get; set; } = true;
         public InputSettings? Input { get; set; }
     }
 }
