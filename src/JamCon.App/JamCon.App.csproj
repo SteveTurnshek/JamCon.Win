@@ -12,6 +12,12 @@
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationIcon>Assets\JamCon.ico</ApplicationIcon>
+    <!--
+      WPF text layout needs real culture data: in invariant mode the first window with text threw
+      CultureNotFoundException ("en is an invalid culture identifier") and took the app down.
+    -->
+    <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>

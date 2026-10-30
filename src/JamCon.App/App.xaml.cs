@@ -60,13 +60,21 @@ public partial class App : Application
         _log.Write($"JamCon.Win starting. Windows {Environment.OSVersion.Version}. Log: {_log.FilePath}");
 
         // A tray app has no console; without these, a crash during a hardware test leaves no trace.
-        DispatcherUnhandledException += (_, args) => _log.Write($"Unhandled UI exception: {args.Exception}");
+        // A broken window must not take the controller down with it: the engine runs on its own
+        // thread, so the app keeps working after a UI failure.
+        DispatcherUnhandledException += (_, args) =>
+        {
+            _log.Write($"Unhandled UI exception (app kept running): {args.Exception}");
+            args.Handled = true;
+        };
         AppDomain.CurrentDomain.UnhandledException += (_, args) => _log.Write($"Unhandled exception: {args.ExceptionObject}");
         TaskScheduler.UnobservedTaskException += (_, args) =>
         {
             _log.Write($"Unobserved task exception: {args.Exception}");
             args.SetObserved();
         };
+
+        _log.Write(StartMenuShortcut.Ensure());
 
         _settingsFile = new AppSettingsFile(AppPaths.SettingsFile, _log.Write);
         _input = new SettingsStore(_settingsFile.Input);
@@ -121,6 +129,7 @@ public partial class App : Application
         };
 
         _tray = new TrayController(_link, _log, _settingsFile, _input, _engine);
+        if (e.Args.Contains("--show-status")) _tray.ShowStatusWindow(); // dev aid: same path as a tray click
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
         _log.Write($"Mouse control is {(_input.Snapshot().IsEnabled ? "on" : "off")}. Settings: {AppPaths.SettingsFile}");

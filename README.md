@@ -45,8 +45,9 @@ Original Joy-Con, Pro Controller, Sense, and G502X support existed upstream thro
 
 ## Using it
 
-1. Build, then run `src/JamCon.App/bin/Release/net9.0-windows10.0.22621.0/JamCon.App.exe`. A Joy-Con
-   icon appears in the notification area (look under the ^ arrow).
+1. Build, then run `src/JamCon.App/bin/Release/net9.0-windows10.0.22621.0/JamCon.App.exe` once. It
+   adds a **JamCon** shortcut to your Start menu, so after that you can start it by pressing Windows
+   and typing "jamcon". A Joy-Con icon appears in the notification area (look under the ^ arrow).
 2. **Do not pair the Joy-Con in Windows Bluetooth settings.** JamCon connects to it directly;
    a Windows pairing stops it working. If you already added it there, remove it.
 3. Hold **SYNC** on the Joy-Con until its lights chase. The tray dot turns green when connected.

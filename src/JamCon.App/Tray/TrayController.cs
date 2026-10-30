@@ -175,12 +175,20 @@ internal sealed class TrayController : IDisposable
             : "Point the controller to move the cursor";
     }
 
-    private void ShowStatusWindow()
+    public void ShowStatusWindow()
     {
-        _window ??= new StatusWindow(_link, _log, _input);
-        _window.Show();
-        if (_window.WindowState == WindowState.Minimized) _window.WindowState = WindowState.Normal;
-        _window.Activate();
+        try
+        {
+            _window ??= new StatusWindow(_link, _log, _input);
+            _window.Show();
+            if (_window.WindowState == WindowState.Minimized) _window.WindowState = WindowState.Normal;
+            _window.Activate();
+        }
+        catch (Exception ex)
+        {
+            _log.Write($"Couldn't open the status window: {ex}");
+            _window = null; // a half-built window is not reused
+        }
     }
 
     public void Dispose()
