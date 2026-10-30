@@ -24,6 +24,8 @@ internal sealed class SettingsWindow : Window
     private readonly FileLog _log;
     private readonly TextBlock _mode = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
     private readonly List<Action> _refreshers = [];
+    private Border[] _modeCards = [];
+    private static readonly InputMode[] CardModes = [InputMode.Desktop, InputMode.Game, InputMode.Controller];
     private bool _loading;
 
     public SettingsWindow(SettingsStore input, AppSettingsFile file, IReadOnlyList<JoyCon2Link> links, PacedOutputSink paced, FileLog log, Action showStatus)
@@ -38,9 +40,9 @@ internal sealed class SettingsWindow : Window
         ThemeMode = ThemeMode.System;
 #pragma warning restore WPF0001
         Title = "JamCon settings";
-        Width = 480;
-        Height = 760;
-        MinWidth = 380;
+        Width = 1320;
+        Height = 900;
+        MinWidth = 1000;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
         var panel = new StackPanel { Margin = new Thickness(24, 16, 24, 24) };
@@ -48,19 +50,24 @@ internal sealed class SettingsWindow : Window
         panel.Children.Add(new TextBlock { Text = "JamCon", FontSize = 26, FontWeight = FontWeights.SemiBold });
         panel.Children.Add(_mode);
 
-        Section(panel, "Desktop", "Hold X and point the controller to move the cursor.");
-        Slider(panel, "Cursor speed", 5, 150, 1, GyroSettings.Default.Sensitivity,
+        // One card per mode across the top, the current mode's highlighted; settings for every mode below.
+        var modeColumns = Columns(panel, 3, cards: true);
+        var (desktop, game, xbox) = (modeColumns[0], modeColumns[1], modeColumns[2]);
+        _modeCards = modeColumns.Select(c => (Border)c.Parent).ToArray();
+
+        Section(desktop, "Desktop", "Hold X and point the controller to move the cursor.");
+        Slider(desktop, "Cursor speed", 5, 150, 1, GyroSettings.Default.Sensitivity,
             () => _input.Snapshot().Gyro.Sensitivity,
             v => _input.Update(s => s with { Gyro = s.Gyro with { Sensitivity = v } }),
             v => $"{v:0}");
-        Slider(panel, "Smoothing", 0, SmoothingLevel.Max, 1, SmoothingLevel.Of(GyroSettings.Default),
+        Slider(desktop, "Smoothing", 0, SmoothingLevel.Max, 1, SmoothingLevel.Of(GyroSettings.Default),
             () => SmoothingLevel.Of(_input.Snapshot().Gyro),
             v => _input.Update(s => s with { Gyro = SmoothingLevel.Apply(s.Gyro, (int)v) }),
             SmoothingLabel,
             "More smoothing steadies the cursor but adds lag.");
 
         var advanced = new StackPanel();
-        panel.Children.Add(new Expander { Header = "Advanced cursor tuning", Content = advanced, Margin = new Thickness(0, 12, 0, 0) });
+        desktop.Children.Add(new Expander { Header = "Advanced cursor tuning", Content = advanced, Margin = new Thickness(0, 12, 0, 0) });
         advanced.Children.Add(Hint("Upstream JamCon's finer controls, for desktop mode. Game modes stay linear on purpose."));
         Slider(advanced, "Acceleration: maximum boost", 1, 40, 0.5, GyroSettings.Default.SensitivityCap,
             () => _input.Snapshot().Gyro.SensitivityCap,
@@ -92,93 +99,97 @@ internal sealed class SettingsWindow : Window
             () => _input.Snapshot().Gyro.AutoTuneSampleRate,
             v => _input.Update(s => s with { Gyro = s.Gyro with { AutoTuneSampleRate = v } }));
 
-        Section(panel, "Mouse & keyboard game", "Gyro always aims, like moving a mouse. The stick walks with W A S D. With both Joy-Cons, play as in a Switch 2 motion-controls game: the right aims, the left walks.");
-        Slider(panel, "Aim speed", 2, 80, 0.5, GyroSettings.GameDefault.Sensitivity / 10.0,
+        Section(game, "Mouse & keyboard game", "Gyro always aims, like moving a mouse. The stick walks with W A S D. With both Joy-Cons, play as in a Switch 2 motion-controls game: the right aims, the left walks.");
+        Slider(game, "Aim speed", 2, 80, 0.5, GyroSettings.GameDefault.Sensitivity / 10.0,
             () => _input.Snapshot().GameGyro.Sensitivity / 10.0,
             v => _input.Update(s => s with { GameGyro = s.GameGyro with { Sensitivity = v * 10.0 } }),
             v => $"{v:0.#} counts/°",
             "Mouse counts per degree you turn the controller. Your game's own mouse sensitivity multiplies this.");
-        Slider(panel, "Smoothing", 0, SmoothingLevel.Max, 1, SmoothingLevel.Of(GyroSettings.GameDefault),
+        Slider(game, "Smoothing", 0, SmoothingLevel.Max, 1, SmoothingLevel.Of(GyroSettings.GameDefault),
             () => SmoothingLevel.Of(_input.Snapshot().GameGyro),
             v => _input.Update(s => s with { GameGyro = SmoothingLevel.Apply(s.GameGyro, (int)v) }),
             SmoothingLabel);
-        Check(panel, "Stick moves with W A S D",
+        Check(game, "Stick moves with W A S D",
             () => _input.Snapshot().GameStickMovement,
             v => _input.Update(s => s with { GameStickMovement = v }));
-        Slider(panel, "Right stick turn speed (both Joy-Cons)", 60, 720, 10, InputSettings.DefaultGameStickTurnSpeed,
+        Slider(game, "Right stick turn speed (both Joy-Cons)", 60, 720, 10, InputSettings.DefaultGameStickTurnSpeed,
             () => _input.Snapshot().GameStickTurnSpeed,
             v => _input.Update(s => s with { GameStickTurnSpeed = v }),
             v => $"{v:0} °/s",
             "With both Joy-Cons, the right stick turns you left and right for turns too big for your wrist. Y levels the view.");
 
-        Section(panel, "Xbox controller", "Games see a real Xbox controller, with gyro aiming added. Face buttons match by position: the bottom button is A.");
-        Choice(panel, "Gyro aims through",
+        Section(xbox, "Xbox controller", "Games see a real Xbox controller, with gyro aiming added. Face buttons match by position: the bottom button is A.");
+        Choice(xbox, "Gyro aims through",
             [("The right stick (works in every game)", ControllerGyroOutput.RightStick), ("The mouse (precise; only games that take both)", ControllerGyroOutput.Mouse)],
             () => _input.Snapshot().ControllerGyroOutput,
             v => _input.Update(s => s with { ControllerGyroOutput = v }));
-        Choice(panel, "Gyro aims",
+        Choice(xbox, "Gyro aims",
             [("Always", ControllerGyroActivation.Always), ("Only while ZL (left trigger) is held", ControllerGyroActivation.WhileLeftTrigger)],
             () => _input.Snapshot().ControllerGyroActivation,
             v => _input.Update(s => s with { ControllerGyroActivation = v }));
-        Slider(panel, "Stick aim: turn speed for a full push", 45, 720, 15, InputSettings.DefaultControllerGyroFullSpeed,
+        Slider(xbox, "Stick aim: turn speed for a full push", 45, 720, 15, InputSettings.DefaultControllerGyroFullSpeed,
             () => _input.Snapshot().ControllerGyroFullSpeed,
             v => _input.Update(s => s with { ControllerGyroFullSpeed = v }),
             v => $"{v:0} °/s",
             "How fast you must turn the Joy-Con to push the right stick all the way. Lower is more sensitive.");
-        Slider(panel, "Stick aim: game's deadzone", 0, 0.4, 0.01, InputSettings.DefaultControllerStickDeadzone,
+        Slider(xbox, "Stick aim: game's deadzone", 0, 0.4, 0.01, InputSettings.DefaultControllerStickDeadzone,
             () => _input.Snapshot().ControllerStickDeadzone,
             v => _input.Update(s => s with { ControllerStickDeadzone = v }),
             v => $"{v * 100:0}%",
             "Raise it if small, slow turns don't move the view; lower it if the view creeps or jumps when you start turning.");
-        Slider(panel, "Mouse aim speed", 2, 80, 0.5, GyroSettings.GameDefault.Sensitivity / 10.0,
+        Slider(xbox, "Mouse aim speed", 2, 80, 0.5, GyroSettings.GameDefault.Sensitivity / 10.0,
             () => _input.Snapshot().ControllerGyro.Sensitivity / 10.0,
             v => _input.Update(s => s with { ControllerGyro = s.ControllerGyro with { Sensitivity = v * 10.0 } }),
             v => $"{v:0.#} counts/°",
             "Used when gyro aims through the mouse.");
-        Slider(panel, "Smoothing", 0, SmoothingLevel.Max, 1, SmoothingLevel.Of(GyroSettings.GameDefault),
+        Slider(xbox, "Smoothing", 0, SmoothingLevel.Max, 1, SmoothingLevel.Of(GyroSettings.GameDefault),
             () => SmoothingLevel.Of(_input.Snapshot().ControllerGyro),
             v => _input.Update(s => s with { ControllerGyro = SmoothingLevel.Apply(s.ControllerGyro, (int)v) }),
             SmoothingLabel);
 
-        Section(panel, "Scrolling", "In desktop mode the stick scrolls.");
-        Check(panel, "Stick scrolls",
+        Section(desktop, "Scrolling", "The stick scrolls in desktop mode.");
+        Check(desktop, "Stick scrolls",
             () => _input.Snapshot().JoystickScrollEnabled,
             v => _input.Update(s => s with { JoystickScrollEnabled = v }));
-        Slider(panel, "Scroll speed", 1, 30, 0.5, InputSettings.DefaultJoystickScrollSpeed,
+        Slider(desktop, "Scroll speed", 1, 30, 0.5, InputSettings.DefaultJoystickScrollSpeed,
             () => _input.Snapshot().JoystickScrollSpeed,
             v => _input.Update(s => s with { JoystickScrollSpeed = v }),
             v => $"{v:0.#}");
-        Slider(panel, "Scroll acceleration", 1, 6, 0.1, InputSettings.DefaultJoystickScrollAcceleration,
+        Slider(desktop, "Scroll acceleration", 1, 6, 0.1, InputSettings.DefaultJoystickScrollAcceleration,
             () => _input.Snapshot().JoystickScrollAcceleration,
             v => _input.Update(s => s with { JoystickScrollAcceleration = v }),
             v => $"{v:0.0}×",
             "How much faster a full push scrolls than a light one.");
 
-        Section(panel, "Buttons");
+        panel.Children.Add(new TextBlock { Text = "All modes", FontSize = 22, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 28, 0, 0) });
+        var shared = Columns(panel, 3, cards: false);
+        var (buttonsColumn, motionColumn, startupColumn) = (shared[0], shared[1], shared[2]);
+
+        Section(buttonsColumn, "Buttons");
         var edit = new Button { Content = "Edit buttons…", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
         edit.Click += (_, _) => OpenButtonEditor();
-        panel.Children.Add(edit);
-        panel.Children.Add(Hint("Every button's tap, hold and double-tap actions, for each mode, alone or in a pair."));
+        buttonsColumn.Children.Add(edit);
+        buttonsColumn.Children.Add(Hint("Every button's tap, hold and double-tap actions, for each mode, alone or in a pair."));
         var radial = new Button { Content = "Edit radial menu…", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
         radial.Click += (_, _) => OpenRadialEditor();
-        panel.Children.Add(radial);
-        Slider(panel, "Hold time", 0.1, 1.0, 0.05, InputSettings.DefaultHoldThreshold,
+        buttonsColumn.Children.Add(radial);
+        Slider(buttonsColumn, "Hold time", 0.1, 1.0, 0.05, InputSettings.DefaultHoldThreshold,
             () => _input.Snapshot().HoldThreshold,
             v => _input.Update(s => s with { HoldThreshold = v }),
             v => $"{v:0.00} s",
             "How long a press must last to count as a hold (dictation on Y, switching modes on C, and so on).");
-        Slider(panel, "Double-tap window", 0.15, 0.6, 0.05, InputSettings.DefaultDoubleTapWindow,
+        Slider(buttonsColumn, "Double-tap window", 0.15, 0.6, 0.05, InputSettings.DefaultDoubleTapWindow,
             () => _input.Snapshot().DoubleTapWindow,
             v => _input.Update(s => s with { DoubleTapWindow = v }),
             v => $"{v:0.00} s",
             "How soon a second tap must follow. Only buttons with a double-tap action (Y) wait for it.");
-        Check(panel, "Gyro and sticks active",
+        Check(buttonsColumn, "Gyro and sticks active",
             () => _input.Snapshot().CursorControlEnabled,
             v => _input.Update(s => s with { CursorControlEnabled = v }),
             "Off leaves only the buttons working, in every mode.");
 
-        Section(panel, "Battery and motion");
-        Slider(panel, "Sleep when unused for", 0, 60, 1, AppSettingsFile.DefaultIdleSleepMinutes,
+        Section(motionColumn, "Battery and motion");
+        Slider(motionColumn, "Sleep when unused for", 0, 60, 1, AppSettingsFile.DefaultIdleSleepMinutes,
             () => _file.IdleSleepMinutes,
             v =>
             {
@@ -187,7 +198,7 @@ internal sealed class SettingsWindow : Window
             },
             v => v == 0 ? "Never" : $"{v:0} min",
             "Disconnects so the Joy-Con can sleep. Hold SYNC to wake it.");
-        Check(panel, "Smooth motion (240 Hz)",
+        Check(motionColumn, "Smooth motion (240 Hz)",
             () => _file.SmoothMotion,
             v =>
             {
@@ -196,22 +207,24 @@ internal sealed class SettingsWindow : Window
             },
             "Spreads the controller's ~67 updates a second over 240, for smooth movement on fast displays. Adds about 7 ms of lag.");
 
-        Section(panel, "Startup");
-        Check(panel, "Start JamCon when I sign in to Windows",
+        Section(startupColumn, "Startup");
+        Check(startupColumn, "Start JamCon when I sign in to Windows",
             () => StartupRegistration.IsEnabled,
             StartupRegistration.Set);
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 24, 0, 0) };
-        var restore = new Button { Content = "Restore defaults", Padding = new Thickness(14, 6, 14, 6) };
+        Section(startupColumn, "JamCon");
+        var buttons = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+        var restore = new Button { Content = "Restore defaults", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(0, 8, 8, 0) };
         restore.Click += (_, _) => RestoreDefaults();
-        var status = new Button { Content = "Status and log", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(8, 0, 0, 0) };
+        var status = new Button { Content = "Status and log", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(0, 8, 8, 0) };
         status.Click += (_, _) => showStatus();
-        var folder = new Button { Content = "Settings folder", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(8, 0, 0, 0) };
+        var folder = new Button { Content = "Settings folder", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(0, 8, 8, 0) };
         folder.Click += (_, _) => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{AppPaths.Root}\""));
         buttons.Children.Add(restore);
         buttons.Children.Add(status);
         buttons.Children.Add(folder);
-        panel.Children.Add(buttons);
+        startupColumn.Children.Add(buttons);
+        startupColumn.Children.Add(Hint("Restore defaults resets the sliders and switches above. Your mode, start-with-Windows choice, button layouts and radial menu are kept."));
 
 
         Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -271,6 +284,14 @@ internal sealed class SettingsWindow : Window
     {
         var s = _input.Snapshot();
         _mode.Text = $"Now in {s.Mode.DisplayName().ToLowerInvariant()}. Hold {SwitchButton(s)} on the Joy-Con to change mode: desktop, then mouse & keyboard game, then Xbox controller.";
+
+        // The current mode's card gets the accent outline.
+        for (var i = 0; i < _modeCards.Length; i++)
+        {
+            var current = CardModes[i] == s.Mode;
+            _modeCards[i].BorderThickness = new Thickness(current ? 2 : 1);
+            _modeCards[i].SetResourceReference(Border.BorderBrushProperty, current ? "AccentFillColorDefaultBrush" : "CardStrokeColorDefaultBrush");
+        }
     }
 
     /// <summary>The button the current layout uses to switch modes, by name.</summary>
@@ -325,6 +346,38 @@ internal sealed class SettingsWindow : Window
         _paced.Enabled = true;
         _log.Write("Settings restored to defaults (mode, buttons and startup unchanged).");
         Refresh();
+    }
+
+    /// <summary>
+    /// Equal-width columns across the page. As cards, each sits in an outlined, tinted box (the
+    /// Fluent theme's card colours, so it follows light and dark mode).
+    /// </summary>
+    private static StackPanel[] Columns(Panel page, int count, bool cards)
+    {
+        var grid = new Grid { Margin = new Thickness(0, cards ? 16 : 0, 0, 0) };
+        var columns = new StackPanel[count];
+        for (var i = 0; i < count; i++)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var column = new StackPanel();
+            UIElement cell = column;
+            if (cards)
+            {
+                var card = new Border { CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Padding = new Thickness(20, 0, 20, 20), Child = column };
+                card.SetResourceReference(Border.BackgroundProperty, "CardBackgroundFillColorDefaultBrush");
+                card.SetResourceReference(Border.BorderBrushProperty, "CardStrokeColorDefaultBrush");
+                cell = card;
+            }
+
+            var margin = new Thickness(i == 0 ? 0 : 8, 0, i == count - 1 ? 0 : 8, 0);
+            if (cell is FrameworkElement element) element.Margin = margin;
+            Grid.SetColumn(cell, i);
+            grid.Children.Add(cell);
+            columns[i] = column;
+        }
+
+        page.Children.Add(grid);
+        return columns;
     }
 
     private static void Section(Panel panel, string title, string? description = null)
