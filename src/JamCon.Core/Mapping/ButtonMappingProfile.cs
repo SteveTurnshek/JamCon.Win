@@ -9,22 +9,18 @@ namespace JamCon.Core.Mapping;
 /// </summary>
 public sealed class ButtonMappingProfile
 {
-    public const double DefaultHoldThreshold = 0.3;
-    public const double DefaultDoubleTapWindow = 0.3;
-
     private readonly ButtonActions[] _actions = new ButtonActions[JoyCon2ButtonLayout.ButtonCount];
 
+    /// <remarks>
+    /// Hold and double-tap timing are global (<see cref="Engine.InputSettings.HoldThreshold"/>), not
+    /// per layout. Files from when they were per layout still load; those values are ignored.
+    /// </remarks>
     [JsonConstructor]
-    public ButtonMappingProfile(
-        IReadOnlyDictionary<JoyCon2Button, ButtonActions>? mappings,
-        double holdThreshold = DefaultHoldThreshold,
-        double doubleTapWindow = DefaultDoubleTapWindow)
+    public ButtonMappingProfile(IReadOnlyDictionary<JoyCon2Button, ButtonActions>? mappings)
     {
         Mappings = mappings is null
             ? new Dictionary<JoyCon2Button, ButtonActions>()
             : new Dictionary<JoyCon2Button, ButtonActions>(mappings);
-        HoldThreshold = holdThreshold;
-        DoubleTapWindow = doubleTapWindow;
 
         Array.Fill(_actions, ButtonActions.Empty);
         foreach (var (button, actions) in Mappings) _actions[(int)button] = actions;
@@ -42,15 +38,6 @@ public sealed class ButtonMappingProfile
 
     public IReadOnlyDictionary<JoyCon2Button, ButtonActions> Mappings { get; }
 
-    /// <summary>Seconds a button must be held before its hold action fires.</summary>
-    public double HoldThreshold { get; }
-
-    /// <summary>
-    /// Seconds after a short press during which a second press counts as a double tap. Only buttons
-    /// with a double-tap action wait for it.
-    /// </summary>
-    public double DoubleTapWindow { get; }
-
     [JsonIgnore]
     public bool HasDragMapping { get; }
 
@@ -65,7 +52,7 @@ public sealed class ButtonMappingProfile
     public ButtonMappingProfile WithActions(JoyCon2Button button, ButtonActions actions)
     {
         var copy = new Dictionary<JoyCon2Button, ButtonActions>(Mappings) { [button] = actions };
-        return new ButtonMappingProfile(copy, HoldThreshold, DoubleTapWindow);
+        return new ButtonMappingProfile(copy);
     }
 
     /// <summary>Setting a gyro mode as the press clears the hold, as upstream does.</summary>
@@ -77,8 +64,6 @@ public sealed class ButtonMappingProfile
 
     public ButtonMappingProfile WithHold(JoyCon2Button button, ButtonAction hold) =>
         WithActions(button, ActionsFor(button) with { Hold = hold });
-
-    public ButtonMappingProfile WithHoldThreshold(double seconds) => new(Mappings, seconds, DoubleTapWindow);
 
     /// <summary>
     /// Windows defaults, re-derived from upstream's production one-handed layout.

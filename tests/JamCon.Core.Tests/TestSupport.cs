@@ -36,6 +36,9 @@ internal sealed class ManualHoldScheduler : IHoldScheduler
         return timer;
     }
 
+    /// <summary>Delays of the timers still waiting to fire.</summary>
+    public IEnumerable<TimeSpan> PendingDelays => _pending.Where(t => !t.Cancelled).Select(t => t.Delay);
+
     public void FireAll()
     {
         var work = _pending.ToArray();

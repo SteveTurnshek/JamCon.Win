@@ -92,7 +92,6 @@ public class DefaultProfileTests
             profile.ActionsFor(JoyCon2Button.Home));
         Assert.Equal(new ButtonActions(ButtonAction.None, ButtonAction.ToggleMode), profile.ActionsFor(JoyCon2Button.C));
         Assert.Equal(new ButtonActions(ButtonAction.RadialMenu), profile.ActionsFor(JoyCon2Button.B));
-        Assert.Equal(ButtonMappingProfile.DefaultHoldThreshold, profile.HoldThreshold);
         Assert.True(profile.HasDragMapping);
     }
 
@@ -131,13 +130,11 @@ public class DefaultProfileTests
     public void ProfileRoundTripsThroughJson()
     {
         var original = ButtonMappingProfile.DefaultFor(JoyCon2Handedness.Right)
-            .WithPress(JoyCon2Button.C, ButtonAction.Key(VirtualKeys.Space, KeyModifiers.Control | KeyModifiers.Shift))
-            .WithHoldThreshold(0.45);
+            .WithPress(JoyCon2Button.C, ButtonAction.Key(VirtualKeys.Space, KeyModifiers.Control | KeyModifiers.Shift));
 
         var json = JsonSerializer.Serialize(original);
         var restored = JsonSerializer.Deserialize<ButtonMappingProfile>(json)!;
 
-        Assert.Equal(0.45, restored.HoldThreshold);
         foreach (var button in Enum.GetValues<JoyCon2Button>())
         {
             Assert.Equal(original.ActionsFor(button), restored.ActionsFor(button));

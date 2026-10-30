@@ -59,6 +59,39 @@ internal sealed class SettingsWindow : Window
             SmoothingLabel,
             "More smoothing steadies the cursor but adds lag.");
 
+        var advanced = new StackPanel();
+        panel.Children.Add(new Expander { Header = "Advanced cursor tuning", Content = advanced, Margin = new Thickness(0, 12, 0, 0) });
+        advanced.Children.Add(Hint("Upstream JamCon's finer controls, for desktop mode. Game modes stay linear on purpose."));
+        Slider(advanced, "Acceleration: maximum boost", 1, 40, 0.5,
+            () => _input.Snapshot().Gyro.SensitivityCap,
+            v => _input.Update(s => s with { Gyro = s.Gyro with { SensitivityCap = v } }),
+            v => v <= 1 ? "Off" : $"{v:0.#}×",
+            "How much faster a fast flick moves the cursor than a slow, precise movement.");
+        Slider(advanced, "Acceleration: full boost at", 30, 500, 5,
+            () => _input.Snapshot().Gyro.RampSpeed,
+            v => _input.Update(s => s with { Gyro = s.Gyro with { RampSpeed = v } }),
+            v => $"{v:0} °/s");
+        Slider(advanced, "Acceleration: curve shape", 0.3, 3, 0.05,
+            () => _input.Snapshot().Gyro.CurveExponent,
+            v => _input.Update(s => s with { Gyro = s.Gyro with { CurveExponent = v } }),
+            v => $"{v:0.00}",
+            "Below 1 the boost comes in early, 1 is even, above 1 it waits for faster motion.");
+        Slider(advanced, "Smoothing reactivity", 0, 2, 0.05,
+            () => _input.Snapshot().Gyro.Beta,
+            v => _input.Update(s => s with { Gyro = s.Gyro with { Beta = v } }),
+            v => $"{v:0.00}",
+            "How quickly smoothing lets go when you move fast. Higher feels snappier, lower steadier.");
+        Choice(advanced, "Adaptive smoothing",
+            [("Off", AdaptiveSmoothingMode.Off), ("Speed", AdaptiveSmoothingMode.Speed), ("Speed and jerk (default)", AdaptiveSmoothingMode.SpeedAndJerk)],
+            () => _input.Snapshot().Gyro.AdaptiveSmoothingMode,
+            v => _input.Update(s => s with { Gyro = s.Gyro with { AdaptiveSmoothingMode = v } }));
+        Check(advanced, "Re-calibrate drift whenever the controller is held very still",
+            () => _input.Snapshot().Gyro.AutoNeutralEnabled,
+            v => _input.Update(s => s with { Gyro = s.Gyro with { AutoNeutralEnabled = v } }));
+        Check(advanced, "Auto-tune to the measured report rate",
+            () => _input.Snapshot().Gyro.AutoTuneSampleRate,
+            v => _input.Update(s => s with { Gyro = s.Gyro with { AutoTuneSampleRate = v } }));
+
         Section(panel, "Mouse & keyboard game", "Gyro always aims, like moving a mouse. The stick walks with W A S D. With both Joy-Cons, play as in a Switch 2 motion-controls game: the right aims, the left walks.");
         Slider(panel, "Aim speed", 2, 80, 0.5,
             () => _input.Snapshot().GameGyro.Sensitivity / 10.0,
@@ -108,6 +141,9 @@ internal sealed class SettingsWindow : Window
             SmoothingLabel);
 
         Section(panel, "Scrolling", "In desktop mode the stick scrolls.");
+        Check(panel, "Stick scrolls",
+            () => _input.Snapshot().JoystickScrollEnabled,
+            v => _input.Update(s => s with { JoystickScrollEnabled = v }));
         Slider(panel, "Scroll speed", 1, 30, 0.5,
             () => _input.Snapshot().JoystickScrollSpeed,
             v => _input.Update(s => s with { JoystickScrollSpeed = v }),
@@ -117,6 +153,22 @@ internal sealed class SettingsWindow : Window
             v => _input.Update(s => s with { JoystickScrollAcceleration = v }),
             v => $"{v:0.0}×",
             "How much faster a full push scrolls than a light one.");
+
+        Section(panel, "Buttons");
+        Slider(panel, "Hold time", 0.1, 1.0, 0.05,
+            () => _input.Snapshot().HoldThreshold,
+            v => _input.Update(s => s with { HoldThreshold = v }),
+            v => $"{v:0.00} s",
+            "How long a press must last to count as a hold (dictation on Y, switching modes on C, and so on).");
+        Slider(panel, "Double-tap window", 0.15, 0.6, 0.05,
+            () => _input.Snapshot().DoubleTapWindow,
+            v => _input.Update(s => s with { DoubleTapWindow = v }),
+            v => $"{v:0.00} s",
+            "How soon a second tap must follow. Only buttons with a double-tap action (Y) wait for it.");
+        Check(panel, "Gyro and sticks active",
+            () => _input.Snapshot().CursorControlEnabled,
+            v => _input.Update(s => s with { CursorControlEnabled = v }),
+            "Off leaves only the buttons working, in every mode.");
 
         Section(panel, "Battery and motion");
         Slider(panel, "Sleep when unused for", 0, 60, 1,
@@ -226,6 +278,10 @@ internal sealed class SettingsWindow : Window
             ControllerGyroActivation = ControllerGyroActivation.Always,
             ControllerGyroFullSpeed = InputSettings.DefaultControllerGyroFullSpeed,
             ControllerStickDeadzone = InputSettings.DefaultControllerStickDeadzone,
+            HoldThreshold = InputSettings.DefaultHoldThreshold,
+            DoubleTapWindow = InputSettings.DefaultDoubleTapWindow,
+            CursorControlEnabled = true,
+            JoystickScrollEnabled = true,
             JoystickScrollSpeed = InputSettings.DefaultJoystickScrollSpeed,
             JoystickScrollAcceleration = InputSettings.DefaultJoystickScrollAcceleration,
         });

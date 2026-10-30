@@ -155,13 +155,23 @@ public class GestureTests
         var profile = ButtonMappingProfile.DefaultFor(JoyCon2Handedness.Right);
         var restored = JsonSerializer.Deserialize<ButtonMappingProfile>(JsonSerializer.Serialize(profile))!;
         Assert.Equal(profile.ActionsFor(JoyCon2Button.Y), restored.ActionsFor(JoyCon2Button.Y));
-        Assert.Equal(ButtonMappingProfile.DefaultDoubleTapWindow, restored.DoubleTapWindow);
 
-        // Saved before double taps existed: no DoubleTap fields, no window.
+        // Saved before double taps existed, when timing was per layout: no DoubleTap fields, and a
+        // HoldThreshold that is now ignored.
         const string old = """{"Mappings":{"A":{"Press":{"type":"keyPress","Combo":{"VirtualKey":27,"Modifiers":0}},"Hold":{"type":"none"}}},"HoldThreshold":0.3}""";
         var legacy = JsonSerializer.Deserialize<ButtonMappingProfile>(old)!;
         Assert.Equal(ButtonAction.None, legacy.ActionsFor(JoyCon2Button.A).DoubleTap);
         Assert.False(legacy.ActionsFor(JoyCon2Button.A).UsesDoubleTap);
-        Assert.Equal(ButtonMappingProfile.DefaultDoubleTapWindow, legacy.DoubleTapWindow);
+    }
+
+    [Fact]
+    public void TimingIsGlobalAndAdjustable()
+    {
+        var h = new Harness();
+        h.Settings.Update(s => s with { HoldThreshold = 0.8 });
+        Assert.Equal(0.8, h.Settings.Snapshot().HoldThreshold);
+
+        h.Frame(true);
+        Assert.Equal(TimeSpan.FromSeconds(0.8), Assert.Single(h.Scheduler.PendingDelays));
     }
 }

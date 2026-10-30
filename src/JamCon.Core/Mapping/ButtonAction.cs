@@ -253,7 +253,7 @@ public sealed record GamepadButtonAction(GamepadButtons Button) : ButtonAction
 /// </summary>
 /// <remarks>
 /// With either double-tap action set, a short press is not acted on at release: it waits up to the
-/// profile's double-tap window for a second press. A second short press runs
+/// double-tap window (InputSettings.DoubleTapWindow) for a second press. A second short press runs
 /// <see cref="DoubleTap"/>; holding the second press runs <see cref="DoubleTapHold"/> for as long
 /// as it is held; no second press runs <see cref="Press"/>. Holding the first press runs
 /// <see cref="Hold"/> exactly as without double-tap actions.

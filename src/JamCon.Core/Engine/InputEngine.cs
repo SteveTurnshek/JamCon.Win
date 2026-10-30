@@ -378,7 +378,7 @@ public sealed class InputEngine
 
         if (device.HasPrimedButtonState)
         {
-            ProcessButtons(device, report.Buttons, profile);
+            ProcessButtons(device, report.Buttons, profile, s);
         }
         else
         {
@@ -562,7 +562,7 @@ public sealed class InputEngine
         _output.Scroll(Scaled(deltaX), Scaled(deltaY));
     }
 
-    private void ProcessButtons(DeviceState device, uint buttons, ButtonMappingProfile profile)
+    private void ProcessButtons(DeviceState device, uint buttons, ButtonMappingProfile profile, InputSettings timing)
     {
         foreach (var button in JoyCon2ButtonLayout.AvailableButtons(device.Handedness))
         {
@@ -577,12 +577,12 @@ public sealed class InputEngine
                 // A gesture already under way finishes as it began, even if the mapping changed mid-way.
                 if (device.Gestures[index] is not null || (isPressed && actions.UsesDoubleTap))
                 {
-                    if (isPressed) GestureDown(device, button, actions, profile);
-                    else GestureUp(device, button, profile);
+                    if (isPressed) GestureDown(device, button, actions, timing);
+                    else GestureUp(device, button, timing);
                 }
                 else if (isPressed)
                 {
-                    ButtonDown(device, button, actions, profile.HoldThreshold);
+                    ButtonDown(device, button, actions, timing.HoldThreshold);
                 }
                 else
                 {
@@ -804,7 +804,7 @@ public sealed class InputEngine
     /// press, wait up to the double-tap window for a second press: none runs Press, a short second
     /// press runs DoubleTap, a held second press runs DoubleTapHold. See <see cref="ButtonActions"/>.
     /// </summary>
-    private void GestureDown(DeviceState device, JoyCon2Button button, ButtonActions actions, ButtonMappingProfile profile)
+    private void GestureDown(DeviceState device, JoyCon2Button button, ButtonActions actions, InputSettings timing)
     {
         var index = (int)button;
         var gesture = device.Gestures[index];
@@ -822,7 +822,7 @@ public sealed class InputEngine
 
             gesture.Phase = GesturePhase.SecondDown;
             var second = gesture;
-            gesture.Timer = _holdScheduler.Schedule(TimeSpan.FromSeconds(profile.HoldThreshold), () =>
+            gesture.Timer = _holdScheduler.Schedule(TimeSpan.FromSeconds(timing.HoldThreshold), () =>
             {
                 if (!ReferenceEquals(device.Gestures[index], second) || second.Phase != GesturePhase.SecondDown) return;
                 second.Phase = GesturePhase.SecondHeld;
@@ -833,7 +833,7 @@ public sealed class InputEngine
 
         var first = new Gesture(actions, device.Id, button.ToString()) { Phase = GesturePhase.FirstDown };
         device.Gestures[index] = first;
-        first.Timer = _holdScheduler.Schedule(TimeSpan.FromSeconds(profile.HoldThreshold), () =>
+        first.Timer = _holdScheduler.Schedule(TimeSpan.FromSeconds(timing.HoldThreshold), () =>
         {
             if (!ReferenceEquals(device.Gestures[index], first) || first.Phase != GesturePhase.FirstDown) return;
             first.Phase = GesturePhase.FirstHeld;
@@ -841,7 +841,7 @@ public sealed class InputEngine
         });
     }
 
-    private void GestureUp(DeviceState device, JoyCon2Button button, ButtonMappingProfile profile)
+    private void GestureUp(DeviceState device, JoyCon2Button button, InputSettings timing)
     {
         var index = (int)button;
         if (device.Gestures[index] is not { } gesture) return;
@@ -851,7 +851,7 @@ public sealed class InputEngine
         {
             case GesturePhase.FirstDown:
                 gesture.Phase = GesturePhase.AwaitingSecond;
-                gesture.Timer = _holdScheduler.Schedule(TimeSpan.FromSeconds(profile.DoubleTapWindow), () =>
+                gesture.Timer = _holdScheduler.Schedule(TimeSpan.FromSeconds(timing.DoubleTapWindow), () =>
                 {
                     if (!ReferenceEquals(device.Gestures[index], gesture) || gesture.Phase != GesturePhase.AwaitingSecond) return;
                     device.Gestures[index] = null;

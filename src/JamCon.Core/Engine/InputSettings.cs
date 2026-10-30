@@ -11,6 +11,8 @@ namespace JamCon.Core.Engine;
 /// </summary>
 public sealed record InputSettings
 {
+    public const double DefaultHoldThreshold = 0.3;
+    public const double DefaultDoubleTapWindow = 0.3;
     public const double DefaultJoystickScrollSpeed = 8.0;
     public const double DefaultJoystickScrollAcceleration = 3.0;
     public const double DefaultGameStickTurnSpeed = 270.0;
@@ -21,6 +23,15 @@ public sealed record InputSettings
 
     /// <summary>Master switch for all output. Turning it off releases anything held down.</summary>
     public bool IsEnabled { get; init; } = true;
+
+    /// <summary>Seconds a button must be held before its hold action fires. Upstream's range is 0.1–1.0.</summary>
+    public double HoldThreshold { get; init; } = DefaultHoldThreshold;
+
+    /// <summary>
+    /// Seconds after a short press during which a second press counts as a double tap. Only buttons
+    /// with a double-tap action wait for it.
+    /// </summary>
+    public double DoubleTapWindow { get; init; } = DefaultDoubleTapWindow;
 
     /// <summary>Desktop moves the cursor; game mode aims with relative mouse motion. See <see cref="InputMode"/>.</summary>
     public InputMode Mode { get; init; } = InputMode.Desktop;
