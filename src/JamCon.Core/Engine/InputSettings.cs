@@ -14,6 +14,8 @@ public sealed record InputSettings
     public const double DefaultJoystickScrollSpeed = 8.0;
     public const double DefaultJoystickScrollAcceleration = 3.0;
     public const double DefaultGameStickTurnSpeed = 270.0;
+    public const double DefaultControllerGyroFullSpeed = 180.0;
+    public const double DefaultControllerStickDeadzone = 0.2;
 
     public static InputSettings Default { get; } = new();
 
@@ -37,6 +39,27 @@ public sealed record InputSettings
     public ButtonMappingProfile GamePairRightButtons { get; init; } = ButtonMappingProfile.GamePairDefaultFor(JoyCon2Handedness.Right);
     public ButtonMappingProfile GamePairLeftButtons { get; init; } = ButtonMappingProfile.GamePairDefaultFor(JoyCon2Handedness.Left);
 
+    /// <summary>Xbox controller mode; see <see cref="ButtonMappingProfile.ControllerDefaultFor"/>.</summary>
+    public ButtonMappingProfile ControllerRightButtons { get; init; } = ButtonMappingProfile.ControllerDefaultFor(JoyCon2Handedness.Right, paired: false);
+    public ButtonMappingProfile ControllerLeftButtons { get; init; } = ButtonMappingProfile.ControllerDefaultFor(JoyCon2Handedness.Left, paired: false);
+    public ButtonMappingProfile ControllerPairRightButtons { get; init; } = ButtonMappingProfile.ControllerDefaultFor(JoyCon2Handedness.Right, paired: true);
+    public ButtonMappingProfile ControllerPairLeftButtons { get; init; } = ButtonMappingProfile.ControllerDefaultFor(JoyCon2Handedness.Left, paired: true);
+
+    /// <summary>Gyro tuning for Xbox controller mode when it aims with the mouse.</summary>
+    public GyroSettings ControllerGyro { get; init; } = GyroSettings.GameDefault;
+
+    public ControllerGyroOutput ControllerGyroOutput { get; init; } = ControllerGyroOutput.RightStick;
+    public ControllerGyroActivation ControllerGyroActivation { get; init; } = ControllerGyroActivation.Always;
+
+    /// <summary>Rotation speed, °/s, that pushes the right stick all the way when gyro aims through it.</summary>
+    public double ControllerGyroFullSpeed { get; init; } = DefaultControllerGyroFullSpeed;
+
+    /// <summary>
+    /// The game's own right-stick deadzone, as a fraction of full travel. Gyro output starts just past
+    /// it, so slow, small turns still register instead of vanishing inside the game's deadzone.
+    /// </summary>
+    public double ControllerStickDeadzone { get; init; } = DefaultControllerStickDeadzone;
+
     /// <summary>With both Joy-Cons in game mode, how fast a full right-stick push turns, in degrees a second.</summary>
     public double GameStickTurnSpeed { get; init; } = DefaultGameStickTurnSpeed;
 
@@ -58,6 +81,10 @@ public sealed record InputSettings
     /// </summary>
     public ButtonMappingProfile ButtonsFor(JoyCon2Handedness handedness, bool paired = false) => (Mode, handedness, paired) switch
     {
+        (InputMode.Controller, JoyCon2Handedness.Right, true) => ControllerPairRightButtons,
+        (InputMode.Controller, _, true) => ControllerPairLeftButtons,
+        (InputMode.Controller, JoyCon2Handedness.Right, _) => ControllerRightButtons,
+        (InputMode.Controller, _, _) => ControllerLeftButtons,
         (InputMode.Game, JoyCon2Handedness.Right, true) => GamePairRightButtons,
         (InputMode.Game, _, true) => GamePairLeftButtons,
         (InputMode.Game, JoyCon2Handedness.Right, _) => GameRightButtons,
@@ -68,7 +95,12 @@ public sealed record InputSettings
 
     /// <summary>The gyro tuning in effect for the current mode.</summary>
     [JsonIgnore]
-    public GyroSettings ActiveGyro => Mode == InputMode.Game ? GameGyro : Gyro;
+    public GyroSettings ActiveGyro => Mode switch
+    {
+        InputMode.Game => GameGyro,
+        InputMode.Controller => ControllerGyro,
+        _ => Gyro,
+    };
 }
 
 /// <summary>What the controller is being used for.</summary>
@@ -80,8 +112,14 @@ public enum InputMode
     /// <summary>
     /// Gyro always aims, as relative mouse motion that games read as mouse look; the stick holds
     /// WASD. Absolute cursor positioning cannot work here: games recentre the cursor every frame.
+    /// Shown as "mouse and keyboard game" mode; the stored name predates the controller mode.
     /// </summary>
     Game,
+
+    /// <summary>
+    /// A virtual Xbox controller (ViGEmBus), with gyro aiming through the right stick or the mouse.
+    /// </summary>
+    Controller,
 }
 
 /// <summary>
@@ -134,4 +172,22 @@ public static class NumericSettingNormalizer
         var steps = Math.Round((clamped - min) / step, MidpointRounding.AwayFromZero);
         return Math.Clamp(min + steps * step, min, max);
     }
+}
+
+public static class InputModes
+{
+    /// <summary>The order holding the mode button steps through.</summary>
+    public static InputMode Next(InputMode mode, bool controllerAvailable) => mode switch
+    {
+        InputMode.Desktop => InputMode.Game,
+        InputMode.Game when controllerAvailable => InputMode.Controller,
+        _ => InputMode.Desktop,
+    };
+
+    public static string DisplayName(this InputMode mode) => mode switch
+    {
+        InputMode.Game => "Mouse & keyboard game mode",
+        InputMode.Controller => "Xbox controller mode",
+        _ => "Desktop mode",
+    };
 }

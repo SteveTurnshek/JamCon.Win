@@ -33,6 +33,7 @@ public sealed class InputEngine
     private readonly ActionExecutor _executor;
     private readonly Dictionary<string, DeviceState> _devices = new();
     private readonly IRadialMenuPresenter _radialMenu;
+    private readonly IGamepadOutput? _gamepad;
 
     /// <summary>The device whose button opened the radial menu; only one menu is open at a time.</summary>
     private string? _radialOwner;
@@ -41,8 +42,13 @@ public sealed class InputEngine
     private double _radialY;
 
     public InputEngine(
-        IOutputSink output, IHoldScheduler holdScheduler, Func<InputSettings> settings, IRadialMenuPresenter? radialMenu = null)
+        IOutputSink output,
+        IHoldScheduler holdScheduler,
+        Func<InputSettings> settings,
+        IRadialMenuPresenter? radialMenu = null,
+        IGamepadOutput? gamepad = null)
     {
+        _gamepad = gamepad;
         _output = output;
         _holdScheduler = holdScheduler;
         _settings = settings;
@@ -71,7 +77,7 @@ public sealed class InputEngine
     /// </summary>
     private double _pitchCounts;
 
-    private void RunEngineAction(ButtonAction action)
+    private void RunEngineAction(ButtonAction action, EngineActionPhase phase, SyntheticOutputOwner owner)
     {
         switch (action)
         {
@@ -82,7 +88,154 @@ public sealed class InputEngine
                 if (_pitchCounts != 0) _output.Look(0, -_pitchCounts);
                 _pitchCounts = 0;
                 break;
+            case GamepadButtonAction pad when owner.DeviceId is { } id && _devices.TryGetValue(id, out var device):
+                switch (phase)
+                {
+                    case EngineActionPhase.Press:
+                        device.PadPress(pad.Button);
+                        break;
+                    case EngineActionPhase.Release:
+                        device.PadRelease(pad.Button);
+                        break;
+                    case EngineActionPhase.Tap:
+                        // Held briefly: a game polls the pad, and a press and release inside one
+                        // poll would never be seen.
+                        device.PadPress(pad.Button);
+                        var generation = device.PadGeneration;
+                        _holdScheduler.Schedule(GamepadTapLength, () =>
+                        {
+                            if (device.PadGeneration != generation) return; // reset meanwhile
+                            device.PadRelease(pad.Button);
+                            SendGamepadIfActive();
+                        });
+                        break;
+                }
+
+                SendGamepadIfActive();
+                break;
         }
+    }
+
+    private static readonly TimeSpan GamepadTapLength = TimeSpan.FromMilliseconds(60);
+
+    /// <summary>Below this rotation speed, °/s, gyro leaves the right stick alone, so a resting controller never drifts the view.</summary>
+    internal const double MinimumGyroStickSpeed = 1.5;
+
+    /// <summary>The Joy-Con stick's own deadzone in Xbox controller mode, before the game applies its own.</summary>
+    internal const double PadStickDeadzone = 0.08;
+
+    private GamepadReport _lastPad = GamepadReport.Neutral;
+    private bool _padActive;
+
+    /// <summary>
+    /// Xbox controller mode: the gyro of the aiming Joy-Con aims, through the right stick or the
+    /// mouse, always or only while the left trigger is held.
+    /// </summary>
+    private void ProcessControllerGyro(DeviceState device, double dx, double dy, double dt, InputSettings s, bool aims)
+    {
+        device.GyroStick = (0, 0);
+        if (!aims) return;
+        if (s.ControllerGyroActivation == ControllerGyroActivation.WhileLeftTrigger && !AnyPadHeld(GamepadButtons.LeftTrigger)) return;
+
+        if (s.ControllerGyroOutput == ControllerGyroOutput.Mouse)
+        {
+            _output.Look(dx, dy);
+            return;
+        }
+
+        if (dt <= 0) return;
+
+        // Back to degrees a second: the controller gyro defaults are linear, so the processor's
+        // output is its sensitivity times the rotation.
+        var countsPerDegree = Math.Max(0.01, s.ControllerGyro.Sensitivity * 0.1);
+        var vx = dx / dt / countsPerDegree;
+        var vy = dy / dt / countsPerDegree;
+        var speed = Math.Sqrt(vx * vx + vy * vy);
+        if (speed < MinimumGyroStickSpeed) return;
+
+        // Start just past the game's deadzone, so a slow turn moves the view instead of vanishing in it.
+        var deadzone = Math.Clamp(s.ControllerStickDeadzone, 0, 0.9);
+        var magnitude = deadzone + (1 - deadzone) * Math.Min(1.0, speed / Math.Max(1.0, s.ControllerGyroFullSpeed));
+        device.GyroStick = (magnitude * vx / speed, -magnitude * vy / speed); // XInput: positive Y is up
+    }
+
+    private static (double X, double Y) PadStick((byte X, byte Y) position)
+    {
+        var x = (position.X - 128.0) / 127.0;
+        var y = (position.Y - 128.0) / 127.0; // positive is up, as XInput
+        var length = Math.Sqrt(x * x + y * y);
+        if (length <= PadStickDeadzone) return (0, 0);
+        var scaled = Math.Min(1.0, (length - PadStickDeadzone) / (1 - PadStickDeadzone));
+        return (x / length * scaled, y / length * scaled);
+    }
+
+    private bool AnyPadHeld(GamepadButtons button)
+    {
+        foreach (var d in _devices.Values)
+        {
+            if (d.Connected && (d.PadButtons & button) != 0) return true;
+        }
+
+        return false;
+    }
+
+    private void SendGamepadIfActive()
+    {
+        if (_settings().Mode == InputMode.Controller) SendGamepad(IsPaired());
+    }
+
+    /// <summary>
+    /// Combines every connected Joy-Con into one Xbox controller: buttons from both, each stick on
+    /// its own side when paired (a lone Joy-Con's stick is the left stick), and gyro on the right.
+    /// </summary>
+    private void SendGamepad(bool paired)
+    {
+        if (_gamepad is not { IsAvailable: true }) return;
+
+        var buttons = GamepadButtons.None;
+        double lx = 0, ly = 0, rx = 0, ry = 0;
+        foreach (var d in _devices.Values)
+        {
+            if (!d.Connected) continue;
+            buttons |= d.PadButtons;
+            if (paired && d.Handedness == JoyCon2Handedness.Right)
+            {
+                rx += d.PadStick.X;
+                ry += d.PadStick.Y;
+            }
+            else
+            {
+                lx += d.PadStick.X;
+                ly += d.PadStick.Y;
+            }
+
+            rx += d.GyroStick.X;
+            ry += d.GyroStick.Y;
+        }
+
+        (lx, ly) = ClampToCircle(lx, ly);
+        (rx, ry) = ClampToCircle(rx, ry);
+        var report = new GamepadReport(buttons, lx, ly, rx, ry);
+        if (_padActive && report == _lastPad) return;
+
+        _gamepad.Send(report);
+        _lastPad = report;
+        _padActive = true;
+    }
+
+    private static (double X, double Y) ClampToCircle(double x, double y)
+    {
+        var length = Math.Sqrt(x * x + y * y);
+        return length <= 1 ? (x, y) : (x / length, y / length);
+    }
+
+    /// <summary>Unplugs the virtual controller, so games see it only in Xbox controller mode.</summary>
+    private void ReleaseGamepad()
+    {
+        if (!_padActive) return;
+        _gamepad?.Release();
+        _padActive = false;
+        _lastPad = GamepadReport.Neutral;
     }
 
     private void Look(double dx, double dy)
@@ -158,6 +311,7 @@ public sealed class InputEngine
         if (enabled) return;
         foreach (var device in _devices.Values) ResetTransientState(device);
         _executor.ReleaseAll();
+        ReleaseGamepad();
     }
 
     /// <summary>Re-learns gyro bias from scratch.</summary>
@@ -182,6 +336,7 @@ public sealed class InputEngine
     {
         foreach (var device in _devices.Values) ResetTransientState(device);
         _executor.ReleaseAll();
+        ReleaseGamepad();
         _devices.Clear();
     }
 
@@ -198,6 +353,7 @@ public sealed class InputEngine
 
         var s = _settings();
         if (!s.IsEnabled) return;
+        if (s.Mode != InputMode.Controller) ReleaseGamepad();
 
         if (device.Mode != s.Mode)
         {
@@ -235,6 +391,14 @@ public sealed class InputEngine
         var gyro = s.ActiveGyro with { ExpectedSampleRate = motionSampleRate };
         var scale = GyroSettings.EffectiveScale(gyro.GyroScale, GyroConstants.DegreesPerSecondPerCount);
         var (dx, dy) = device.Gyro.Process(axes.Pitch, axes.Yaw, axes.Roll, timestamp, gyro, scale);
+        if (s.Mode == InputMode.Controller)
+        {
+            ProcessControllerGyro(device, dx, dy, dt, s, aims && cursorEnabled);
+            device.PadStick = device.Calibration.IsCalibrated ? PadStick(StickReader.Normalized(stick, device.Calibration)) : (0, 0);
+            SendGamepad(paired);
+            return;
+        }
+
         RouteGyroMovement(device, paired ? Partner(device) : null, dx, dy, cursorEnabled, profile.HasDragMapping, game, aims, paired);
 
         if (!cursorEnabled || !device.Calibration.IsCalibrated) return;
@@ -521,7 +685,7 @@ public sealed class InputEngine
     }
 
     private static bool HeldWithButton(ButtonActions actions) =>
-        actions.Press is MouseClickAction || (actions.Press is KeyPressAction && actions.Hold is NoAction);
+        actions.Press is MouseClickAction || (actions.Press is KeyPressAction or GamepadButtonAction && actions.Hold is NoAction);
 
     private void ReleaseGyroMode(DeviceState device, ButtonAction action)
     {
@@ -576,6 +740,8 @@ public sealed class InputEngine
         device.HasPrimedButtonState = false;
         device.DragButtonHeld = device.ScrollButtonHeld = device.RadialMenuButtonHeld = false;
         Array.Clear(device.StickKeysHeld);
+        device.ClearPad();
+        if (_padActive) SendGamepad(IsPaired());
 
         // A mode switch keeps the learned gyro bias: the controller has not changed.
         if (resetGyro) device.Gyro.Reset();
@@ -762,5 +928,39 @@ public sealed class InputEngine
         public InputMode Mode { get; set; }
         public bool Connected { get; set; }
         public double? LastFrameTime { get; set; }
+
+        /// <summary>How many of this device's buttons hold each Xbox button, by bit position.</summary>
+        private readonly int[] _padCounts = new int[18];
+
+        public GamepadButtons PadButtons { get; private set; }
+
+        /// <summary>Bumped on every reset, so a pending tap release from before it does nothing.</summary>
+        public int PadGeneration { get; private set; }
+
+        public (double X, double Y) PadStick { get; set; }
+        public (double X, double Y) GyroStick { get; set; }
+
+        public void PadPress(GamepadButtons buttons) => CountPad(buttons, +1);
+
+        public void PadRelease(GamepadButtons buttons) => CountPad(buttons, -1);
+
+        public void ClearPad()
+        {
+            Array.Clear(_padCounts);
+            PadButtons = GamepadButtons.None;
+            PadStick = GyroStick = (0, 0);
+            PadGeneration++;
+        }
+
+        private void CountPad(GamepadButtons buttons, int delta)
+        {
+            for (var bit = 0; bit < _padCounts.Length; bit++)
+            {
+                var flag = (GamepadButtons)(1u << bit);
+                if ((buttons & flag) == 0) continue;
+                _padCounts[bit] = Math.Max(0, _padCounts[bit] + delta);
+                PadButtons = _padCounts[bit] > 0 ? PadButtons | flag : PadButtons & ~flag;
+            }
+        }
     }
 }

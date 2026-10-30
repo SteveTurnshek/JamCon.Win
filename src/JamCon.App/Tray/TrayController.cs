@@ -215,11 +215,17 @@ internal sealed class TrayController : IDisposable
         var paired = connected.Count == 2;
         var aiming = connected.FirstOrDefault(c => c.Handedness == JoyCon2Handedness.Right, connected[0]);
         var profile = settings.ButtonsFor(aiming.Handedness, paired);
-        if (settings.Mode == InputMode.Game)
+        var toggle = profile.Mappings.FirstOrDefault(m => m.Value.Hold is ToggleModeAction).Key;
+        var change = $"Hold {JoyCon2ButtonLayout.DisplayName(toggle)} to change mode";
+        switch (settings.Mode)
         {
-            var toggle = profile.Mappings.FirstOrDefault(m => m.Value.Hold is ToggleModeAction).Key;
-            var back = $"Hold {JoyCon2ButtonLayout.DisplayName(toggle)} for desktop";
-            return paired ? $"Game mode: right Joy-Con aims, Y levels the view. {back}" : $"Game mode: gyro aims. {back}";
+            case InputMode.Controller:
+                var via = settings.ControllerGyroOutput == ControllerGyroOutput.Mouse ? "the mouse" : "the right stick";
+                return $"Xbox controller mode: gyro aims via {via}. {change}";
+            case InputMode.Game:
+                return paired
+                    ? $"Mouse & keyboard mode: right Joy-Con aims, Y levels the view. {change}"
+                    : $"Mouse & keyboard mode: gyro aims. {change}";
         }
 
         var clutch = profile.Mappings.FirstOrDefault(m => m.Value.Press is JamCon.Core.Mapping.DragAction).Key;

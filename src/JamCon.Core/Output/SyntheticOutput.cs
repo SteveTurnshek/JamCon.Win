@@ -83,3 +83,29 @@ public struct SubUnitAccumulator
 
     private static int IntegralPart(double value) => (int)Math.Clamp(Math.Truncate(value), int.MinValue, int.MaxValue);
 }
+
+/// <summary>
+/// A virtual Xbox controller. The ViGEmBus implementation lives in JamCon.Output. The pad should
+/// appear to games only while it is in use, so it connects on the first report and disconnects on
+/// <see cref="Release"/>.
+/// </summary>
+public interface IGamepadOutput
+{
+    /// <summary>Whether a virtual controller can be created at all (the driver is installed).</summary>
+    bool IsAvailable { get; }
+
+    void Send(GamepadReport report);
+
+    /// <summary>Returns everything to neutral and unplugs the virtual controller.</summary>
+    void Release();
+}
+
+/// <summary>What happened to an action the engine runs itself; see <see cref="ActionExecutor"/>.</summary>
+public enum EngineActionPhase
+{
+    Press,
+    Release,
+
+    /// <summary>A press and release in one: the engine holds it briefly so a game polling the pad sees it.</summary>
+    Tap,
+}

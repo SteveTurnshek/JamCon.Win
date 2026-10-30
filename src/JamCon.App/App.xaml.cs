@@ -31,6 +31,7 @@ public partial class App : Application
     private PacedOutputSink? _pacedOutput;
     private RadialMenuOverlay? _radialOverlay;
     private ModeToast? _modeToast;
+    private ViGEmGamepadOutput? _gamepad;
     private EngineHost? _engine;
     private JoyCon2Link[] _links = [];
     private TrayController? _tray;
@@ -102,7 +103,8 @@ public partial class App : Application
 
         _radialOverlay = new RadialMenuOverlay();
         _modeToast = new ModeToast();
-        _engine = new EngineHost(_pacedOutput, _input, _log.Write, new RadialMenuPresenter(_radialOverlay, _log.Write));
+        _gamepad = new ViGEmGamepadOutput(_log.Write);
+        _engine = new EngineHost(_pacedOutput, _input, _log.Write, new RadialMenuPresenter(_radialOverlay, _log.Write), _gamepad);
         _engine.Engine.ModeToggleRequested += ToggleMode;
         _log.Write($"Mode: {_input.Snapshot().Mode}.");
 
@@ -185,15 +187,17 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Raised on the engine thread when the mode button is held. The engine sees the new mode on its
-    /// next frame and releases anything held in the old one.
+    /// Raised on the engine thread when the mode button is held: desktop, then mouse and keyboard
+    /// game, then Xbox controller (skipped without ViGEmBus), then desktop again. The engine sees the
+    /// new mode on its next frame and releases anything held in the old one.
     /// </summary>
     private void ToggleMode()
     {
-        _input!.Update(s => s with { Mode = s.Mode == InputMode.Game ? InputMode.Desktop : InputMode.Game });
+        var controllerAvailable = _gamepad?.IsAvailable == true;
+        _input!.Update(s => s with { Mode = InputModes.Next(s.Mode, controllerAvailable) });
         var mode = _input.Snapshot().Mode;
-        _log!.Write($"Switched to {mode} mode.");
-        Dispatcher.BeginInvoke(() => _modeToast?.Flash(mode == InputMode.Game ? "Game mode" : "Desktop mode"));
+        _log!.Write($"Switched to {mode.DisplayName()}.");
+        Dispatcher.BeginInvoke(() => _modeToast?.Flash(mode.DisplayName()));
     }
 
     /// <summary>
@@ -218,6 +222,7 @@ public partial class App : Application
 
         // Releases every key and button JamCon still holds, then stops the engine thread.
         _engine?.Dispose();
+        _gamepad?.Dispose();
         _pacedOutput?.Dispose();
         _radialOverlay?.Close();
         _modeToast?.Close();

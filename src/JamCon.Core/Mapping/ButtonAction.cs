@@ -128,6 +128,7 @@ public enum SystemAction
 [JsonDerivedType(typeof(RepeatKeyAction), "repeatKey")]
 [JsonDerivedType(typeof(ToggleModeAction), "toggleMode")]
 [JsonDerivedType(typeof(LevelViewAction), "levelView")]
+[JsonDerivedType(typeof(GamepadButtonAction), "gamepad")]
 public abstract record ButtonAction
 {
     public static ButtonAction None { get; } = new NoAction();
@@ -136,6 +137,7 @@ public abstract record ButtonAction
     public static ButtonAction RadialMenu { get; } = new RadialMenuAction();
     public static ButtonAction ToggleMode { get; } = new ToggleModeAction();
     public static ButtonAction LevelView { get; } = new LevelViewAction();
+    public static ButtonAction Pad(GamepadButtons button) => new GamepadButtonAction(button);
 
     public static ButtonAction Click(MouseButton button) => new MouseClickAction(button);
     public static ButtonAction Key(ushort virtualKey, KeyModifiers modifiers = KeyModifiers.None) =>
@@ -238,6 +240,12 @@ public sealed record ToggleModeAction : ButtonAction
 public sealed record LevelViewAction : ButtonAction
 {
     public override string DisplayName => "Level the view";
+}
+
+/// <summary>A virtual Xbox controller button, held for as long as the Joy-Con button is.</summary>
+public sealed record GamepadButtonAction(GamepadButtons Button) : ButtonAction
+{
+    public override string DisplayName => $"Xbox {Button}";
 }
 
 /// <summary>

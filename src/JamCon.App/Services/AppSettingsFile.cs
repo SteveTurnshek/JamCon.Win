@@ -247,7 +247,10 @@ internal sealed class AppSettingsFile
     private static readonly string[] SavedOnlyWhenChanged =
         [nameof(InputSettings.RightButtons), nameof(InputSettings.LeftButtons),
          nameof(InputSettings.GameRightButtons), nameof(InputSettings.GameLeftButtons),
-         nameof(InputSettings.GamePairRightButtons), nameof(InputSettings.GamePairLeftButtons), nameof(InputSettings.RadialMenu)];
+         nameof(InputSettings.GamePairRightButtons), nameof(InputSettings.GamePairLeftButtons),
+         nameof(InputSettings.ControllerRightButtons), nameof(InputSettings.ControllerLeftButtons),
+         nameof(InputSettings.ControllerPairRightButtons), nameof(InputSettings.ControllerPairLeftButtons),
+         nameof(InputSettings.RadialMenu)];
 
     private static JsonNode InputNode(InputSettings input)
     {

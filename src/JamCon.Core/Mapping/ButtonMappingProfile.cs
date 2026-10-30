@@ -192,7 +192,81 @@ public sealed class ButtonMappingProfile
         return new ButtonMappingProfile(mappings);
     }
 
-    /// <summary>Hold to switch between desktop and game mode; a tap does nothing.</summary>
+    /// <summary>
+    /// Xbox controller mode. Face buttons map by position, as on an Xbox pad: the bottom button
+    /// (Switch B) is Xbox A. Sticks and gyro are the engine's: alone, a Joy-Con's stick is the left
+    /// stick and its gyro aims; paired, each stick is its own side's and the right gyro aims.
+    /// </summary>
+    /// <remarks>
+    /// HOME is not Guide: it wakes a nearby Switch 2. A lone Joy-Con has no Back button, so a tap of
+    /// C (Capture on the left) is Back; holding it switches modes as everywhere.
+    /// </remarks>
+    public static ButtonMappingProfile ControllerDefaultFor(JoyCon2Handedness handedness, bool paired)
+    {
+        ButtonActions Pad(GamepadButtons button) => new(ButtonAction.Pad(button));
+        var backOrSwitch = new ButtonActions(ButtonAction.Pad(GamepadButtons.Back), ButtonAction.ToggleMode);
+
+        Dictionary<JoyCon2Button, ButtonActions> mappings = (handedness, paired) switch
+        {
+            (JoyCon2Handedness.Right, true) => new()
+            {
+                [JoyCon2Button.B] = Pad(GamepadButtons.A),
+                [JoyCon2Button.A] = Pad(GamepadButtons.B),
+                [JoyCon2Button.Y] = Pad(GamepadButtons.X),
+                [JoyCon2Button.X] = Pad(GamepadButtons.Y),
+                [JoyCon2Button.R] = Pad(GamepadButtons.RightShoulder),
+                [JoyCon2Button.ZR] = Pad(GamepadButtons.RightTrigger),
+                [JoyCon2Button.Plus] = Pad(GamepadButtons.Start),
+                [JoyCon2Button.StickClick] = Pad(GamepadButtons.RightThumb),
+                [JoyCon2Button.C] = SwitchMode,
+            },
+            (JoyCon2Handedness.Left, true) => new()
+            {
+                [JoyCon2Button.L] = Pad(GamepadButtons.LeftShoulder),
+                [JoyCon2Button.ZL] = Pad(GamepadButtons.LeftTrigger),
+                [JoyCon2Button.Minus] = Pad(GamepadButtons.Back),
+                [JoyCon2Button.StickClick] = Pad(GamepadButtons.LeftThumb),
+                [JoyCon2Button.DpadUp] = Pad(GamepadButtons.DpadUp),
+                [JoyCon2Button.DpadDown] = Pad(GamepadButtons.DpadDown),
+                [JoyCon2Button.DpadLeft] = Pad(GamepadButtons.DpadLeft),
+                [JoyCon2Button.DpadRight] = Pad(GamepadButtons.DpadRight),
+                [JoyCon2Button.Capture] = SwitchMode,
+            },
+            (JoyCon2Handedness.Right, false) => new()
+            {
+                [JoyCon2Button.B] = Pad(GamepadButtons.A),
+                [JoyCon2Button.A] = Pad(GamepadButtons.B),
+                [JoyCon2Button.Y] = Pad(GamepadButtons.X),
+                [JoyCon2Button.X] = Pad(GamepadButtons.Y),
+                [JoyCon2Button.ZR] = Pad(GamepadButtons.RightTrigger),
+                [JoyCon2Button.R] = Pad(GamepadButtons.RightShoulder),
+                [JoyCon2Button.SL] = Pad(GamepadButtons.LeftTrigger),
+                [JoyCon2Button.SR] = Pad(GamepadButtons.LeftShoulder),
+                [JoyCon2Button.Plus] = Pad(GamepadButtons.Start),
+                [JoyCon2Button.StickClick] = Pad(GamepadButtons.LeftThumb),
+                [JoyCon2Button.C] = backOrSwitch,
+            },
+            _ => new()
+            {
+                // A lone left Joy-Con: the d-pad stands in for the face buttons, by position.
+                [JoyCon2Button.DpadDown] = Pad(GamepadButtons.A),
+                [JoyCon2Button.DpadRight] = Pad(GamepadButtons.B),
+                [JoyCon2Button.DpadLeft] = Pad(GamepadButtons.X),
+                [JoyCon2Button.DpadUp] = Pad(GamepadButtons.Y),
+                [JoyCon2Button.ZL] = Pad(GamepadButtons.RightTrigger),
+                [JoyCon2Button.L] = Pad(GamepadButtons.RightShoulder),
+                [JoyCon2Button.SL] = Pad(GamepadButtons.LeftTrigger),
+                [JoyCon2Button.SR] = Pad(GamepadButtons.LeftShoulder),
+                [JoyCon2Button.Minus] = Pad(GamepadButtons.Start),
+                [JoyCon2Button.StickClick] = Pad(GamepadButtons.LeftThumb),
+                [JoyCon2Button.Capture] = backOrSwitch,
+            },
+        };
+
+        return new ButtonMappingProfile(mappings);
+    }
+
+    /// <summary>Hold to step to the next mode (desktop, mouse and keyboard game, Xbox controller); a tap does nothing.</summary>
     private static readonly ButtonActions SwitchMode = new(ButtonAction.None, ButtonAction.ToggleMode);
 
     /// <summary>

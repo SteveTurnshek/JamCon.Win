@@ -59,7 +59,7 @@ internal sealed class SettingsWindow : Window
             SmoothingLabel,
             "More smoothing steadies the cursor but adds lag.");
 
-        Section(panel, "Game", "Gyro always aims, like moving a mouse. The stick walks with W A S D. With both Joy-Cons, play as in a Switch 2 motion-controls game: the right aims, the left walks.");
+        Section(panel, "Mouse & keyboard game", "Gyro always aims, like moving a mouse. The stick walks with W A S D. With both Joy-Cons, play as in a Switch 2 motion-controls game: the right aims, the left walks.");
         Slider(panel, "Aim speed", 2, 80, 0.5,
             () => _input.Snapshot().GameGyro.Sensitivity / 10.0,
             v => _input.Update(s => s with { GameGyro = s.GameGyro with { Sensitivity = v * 10.0 } }),
@@ -77,6 +77,35 @@ internal sealed class SettingsWindow : Window
             v => _input.Update(s => s with { GameStickTurnSpeed = v }),
             v => $"{v:0} °/s",
             "With both Joy-Cons, the right stick turns you left and right for turns too big for your wrist. Y levels the view.");
+
+        Section(panel, "Xbox controller", "Games see a real Xbox controller, with gyro aiming added. Face buttons match by position: the bottom button is A.");
+        Choice(panel, "Gyro aims through",
+            [("The right stick (works in every game)", ControllerGyroOutput.RightStick), ("The mouse (precise; only games that take both)", ControllerGyroOutput.Mouse)],
+            () => _input.Snapshot().ControllerGyroOutput,
+            v => _input.Update(s => s with { ControllerGyroOutput = v }));
+        Choice(panel, "Gyro aims",
+            [("Always", ControllerGyroActivation.Always), ("Only while ZL (left trigger) is held", ControllerGyroActivation.WhileLeftTrigger)],
+            () => _input.Snapshot().ControllerGyroActivation,
+            v => _input.Update(s => s with { ControllerGyroActivation = v }));
+        Slider(panel, "Stick aim: turn speed for a full push", 45, 720, 15,
+            () => _input.Snapshot().ControllerGyroFullSpeed,
+            v => _input.Update(s => s with { ControllerGyroFullSpeed = v }),
+            v => $"{v:0} °/s",
+            "How fast you must turn the Joy-Con to push the right stick all the way. Lower is more sensitive.");
+        Slider(panel, "Stick aim: game's deadzone", 0, 0.4, 0.01,
+            () => _input.Snapshot().ControllerStickDeadzone,
+            v => _input.Update(s => s with { ControllerStickDeadzone = v }),
+            v => $"{v * 100:0}%",
+            "Raise it if small, slow turns don't move the view; lower it if the view creeps or jumps when you start turning.");
+        Slider(panel, "Mouse aim speed", 2, 80, 0.5,
+            () => _input.Snapshot().ControllerGyro.Sensitivity / 10.0,
+            v => _input.Update(s => s with { ControllerGyro = s.ControllerGyro with { Sensitivity = v * 10.0 } }),
+            v => $"{v:0.#} counts/°",
+            "Used when gyro aims through the mouse.");
+        Slider(panel, "Smoothing", 0, SmoothingLevel.Max, 1,
+            () => SmoothingLevel.Of(_input.Snapshot().ControllerGyro),
+            v => _input.Update(s => s with { ControllerGyro = SmoothingLevel.Apply(s.ControllerGyro, (int)v) }),
+            SmoothingLabel);
 
         Section(panel, "Scrolling", "In desktop mode the stick scrolls.");
         Slider(panel, "Scroll speed", 1, 30, 0.5,
@@ -155,8 +184,7 @@ internal sealed class SettingsWindow : Window
     private void ShowMode()
     {
         var s = _input.Snapshot();
-        var game = s.Mode == InputMode.Game;
-        _mode.Text = $"Now in {(game ? "game" : "desktop")} mode. Hold {SwitchButton(s)} on the Joy-Con to switch to {(game ? "desktop" : "game")} mode.";
+        _mode.Text = $"Now in {s.Mode.DisplayName().ToLowerInvariant()}. Hold {SwitchButton(s)} on the Joy-Con to change mode: desktop, then mouse & keyboard game, then Xbox controller.";
     }
 
     /// <summary>The button the current layout uses to switch modes, by name.</summary>
@@ -193,6 +221,11 @@ internal sealed class SettingsWindow : Window
             GameGyro = GyroSettings.GameDefault,
             GameStickMovement = true,
             GameStickTurnSpeed = InputSettings.DefaultGameStickTurnSpeed,
+            ControllerGyro = GyroSettings.GameDefault,
+            ControllerGyroOutput = ControllerGyroOutput.RightStick,
+            ControllerGyroActivation = ControllerGyroActivation.Always,
+            ControllerGyroFullSpeed = InputSettings.DefaultControllerGyroFullSpeed,
+            ControllerStickDeadzone = InputSettings.DefaultControllerStickDeadzone,
             JoystickScrollSpeed = InputSettings.DefaultJoystickScrollSpeed,
             JoystickScrollAcceleration = InputSettings.DefaultJoystickScrollAcceleration,
         });
@@ -254,6 +287,19 @@ internal sealed class SettingsWindow : Window
         panel.Children.Add(header);
         panel.Children.Add(slider);
         if (hint is not null) panel.Children.Add(Hint(hint));
+    }
+
+    private void Choice<T>(Panel panel, string label, (string Label, T Value)[] options, Func<T> read, Action<T> write)
+    {
+        panel.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 12, 0, 0) });
+        var box = new ComboBox { Margin = new Thickness(0, 4, 0, 0), HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var (text, _) in options) box.Items.Add(text);
+        box.SelectionChanged += (_, _) =>
+        {
+            if (!_loading && box.SelectedIndex >= 0) write(options[box.SelectedIndex].Value);
+        };
+        _refreshers.Add(() => box.SelectedIndex = Array.FindIndex(options, o => EqualityComparer<T>.Default.Equals(o.Value, read())));
+        panel.Children.Add(box);
     }
 
     private void Check(Panel panel, string label, Func<bool> read, Action<bool> write, string? hint = null)

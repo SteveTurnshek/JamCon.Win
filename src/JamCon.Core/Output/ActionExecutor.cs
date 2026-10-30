@@ -14,13 +14,14 @@ namespace JamCon.Core.Output;
 public sealed class ActionExecutor
 {
     private readonly SyntheticOutputCoordinator _coordinator;
-    private readonly Action<ButtonAction>? _engineAction;
+    private readonly Action<ButtonAction, EngineActionPhase, SyntheticOutputOwner>? _engineAction;
 
     /// <param name="engineAction">
-    /// Runs the actions that change JamCon itself rather than sending input: switching modes and
-    /// levelling the view. Called once per press.
+    /// Runs the actions the engine owns rather than the coordinator: switching modes and levelling
+    /// the view (acted on at press), and virtual Xbox buttons (press, release and tap).
     /// </param>
-    public ActionExecutor(Action<SyntheticOutputEvent> post, Action<ButtonAction>? engineAction = null)
+    public ActionExecutor(
+        Action<SyntheticOutputEvent> post, Action<ButtonAction, EngineActionPhase, SyntheticOutputOwner>? engineAction = null)
     {
         _coordinator = new SyntheticOutputCoordinator(post);
         _engineAction = engineAction;
@@ -51,7 +52,10 @@ public sealed class ActionExecutor
                 _coordinator.Tap(SyntheticOutput.Key(repeat.Combo), owner);
                 break;
             case ToggleModeAction or LevelViewAction when isPressed:
-                _engineAction?.Invoke(action);
+                _engineAction?.Invoke(action, EngineActionPhase.Press, owner);
+                break;
+            case GamepadButtonAction:
+                _engineAction?.Invoke(action, isPressed ? EngineActionPhase.Press : EngineActionPhase.Release, owner);
                 break;
 
             // None, and the gyro modes, which the engine's gyro routing handles.
@@ -78,7 +82,10 @@ public sealed class ActionExecutor
                 PerformSystemAction(system.Action, owner);
                 break;
             case ToggleModeAction or LevelViewAction:
-                _engineAction?.Invoke(action);
+                _engineAction?.Invoke(action, EngineActionPhase.Press, owner);
+                break;
+            case GamepadButtonAction:
+                _engineAction?.Invoke(action, EngineActionPhase.Tap, owner);
                 break;
         }
     }

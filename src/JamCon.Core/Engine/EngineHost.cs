@@ -19,10 +19,11 @@ public sealed class EngineHost : IHoldScheduler, IDisposable
     private readonly Thread _thread;
     private readonly Action<string> _log;
 
-    public EngineHost(IOutputSink output, SettingsStore settings, Action<string> log, IRadialMenuPresenter? radialMenu = null)
+    public EngineHost(
+        IOutputSink output, SettingsStore settings, Action<string> log, IRadialMenuPresenter? radialMenu = null, IGamepadOutput? gamepad = null)
     {
         _log = log;
-        Engine = new InputEngine(output, this, settings.Snapshot, radialMenu);
+        Engine = new InputEngine(output, this, settings.Snapshot, radialMenu, gamepad);
         _thread = new Thread(Run)
         {
             Name = "JamCon engine",

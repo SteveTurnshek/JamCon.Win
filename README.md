@@ -73,7 +73,7 @@ Default buttons for a right Joy-Con 2:
 | HOME | Task View | Play/Pause |
 | Stick click | Browser back | Browser forward |
 | SL / SR | Down / Up arrow | |
-| C | | Switch to game mode |
+| C | | Next mode |
 | Stick | Scroll | |
 
 **Y is the dictation button**, built for a dictation app whose shortcut is Ctrl+Space in toggle mode
@@ -95,10 +95,14 @@ re-emits the controller's ~67 Hz motion at 240 Hz for smooth movement on high-re
 at a cost of about 7.5 ms of latency. Button mappings are not editable there yet; they live in
 `%LOCALAPPDATA%\JamCon.Win\settings.json`, which can be edited by hand while JamCon is closed.
 
-### Game mode
+## Modes
 
-**Hold C** (on a left Joy-Con, Capture) to switch between desktop and game mode; a label on screen
-confirms which. In game mode the gyro always aims, sent as relative mouse movement that games read
+**Hold C** (on a left Joy-Con, Capture) to step through three modes: **desktop**, **mouse & keyboard
+game**, and **Xbox controller**. A label on screen confirms which.
+
+### Mouse & keyboard game mode
+
+The gyro always aims, sent as relative mouse movement that games read
 as mouse look. There is no X clutch and no acceleration, so a given turn always turns the camera by
 the same amount. Set the in-game mouse sensitivity, then fine-tune **Aim speed** in settings. Keys
 are held for as long as their buttons are.
@@ -112,7 +116,7 @@ are held for as long as their buttons are.
 | X / Y | R / E |
 | SL / SR | Q / F |
 | + | Esc |
-| C (hold) | Back to desktop mode |
+| C (hold) | Next mode |
 
 ### Both Joy-Cons
 
@@ -133,13 +137,32 @@ such as Splatoon:
 | Left stick click / right stick click | Shift / V |
 | D-pad | 1 2 3 4 |
 | + / − | Esc / Tab |
-| C or Capture (hold) | Back to desktop mode |
+| C or Capture (hold) | Next mode |
 
 Levelling the view undoes the up/down aim JamCon has sent since the last level (or since game mode
 began). It is approximate: motion the game stopped at its look limit, or from a real mouse, is not
 counted.
 
-A virtual Xbox controller mode, for games that only take a gamepad, is planned.
+### Xbox controller mode
+
+Games see a real Xbox controller (through the [ViGEmBus](https://github.com/nefarius/ViGEmBus)
+driver, which must be installed; without it this mode is skipped), plus gyro aiming. The virtual
+controller is plugged in only while you are in this mode.
+
+- **Gyro aims through the right stick** by default, which works in every game. Settings tune how fast a
+  turn pushes the stick and compensate for the game's stick deadzone. For games that accept mouse
+  and controller together, gyro can aim through the mouse instead, which is more precise.
+- **Gyro is always on** by default, or only while ZL (left trigger) is held, as in shooters that
+  enable gyro when aiming down sights.
+- **Face buttons map by position**, as on an Xbox pad: the bottom button (B) is Xbox A, A is B, Y is X,
+  X is Y.
+- **Both Joy-Cons**: each stick is its own side's, L/R are the bumpers, ZL/ZR the triggers, + and −
+  are Start and Back, the d-pad is the d-pad, and stick clicks are stick clicks. The right gyro aims.
+- **One Joy-Con**: its stick is the left stick and its gyro aims. ZR/R are the right trigger and bumper
+  (ZL/L on a left Joy-Con), SL/SR the left trigger and bumper, + (or −) is Start, and a tap of C (or
+  Capture) is Back. A left Joy-Con's d-pad stands in for the face buttons.
+
+HOME is never mapped: it wakes a nearby Switch 2.
 
 ## Features
 
@@ -154,6 +177,7 @@ Working:
 - Smooth 240 Hz cursor and scroll output from the controller's ~67 Hz reports
 - Automatic reconnection to a remembered controller, and idle sleep to save its battery
 - Game mode: gyro mouse look, stick as W A S D, held game keys; with both Joy-Cons, Splatoon-style aim, turn and level view
+- Xbox controller mode (ViGEmBus) with gyro aiming through the right stick or the mouse
 - Settings window, Start menu shortcut, and optional start with Windows
 - System tray app with live status and a log
 
@@ -161,7 +185,6 @@ Planned:
 
 - Button remapping in the settings window
 - Hardware testing of two Joy-Cons together
-- A virtual Xbox controller game mode via ViGEm
 - An installer
 
 ## Building
