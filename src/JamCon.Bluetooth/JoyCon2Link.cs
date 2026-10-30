@@ -378,16 +378,19 @@ public sealed class JoyCon2Link : IAsyncDisposable
         var found = new TaskCompletionSource<(KnownJoyCon2 Controller, string Description)>(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
+        // Only a controller in SYNC mode parses as a Joy-Con 2 here, and holding SYNC is a deliberate
+        // request to connect, so any one is accepted, not just the remembered one. That is how a
+        // second Joy-Con takes over: it becomes the remembered controller once it connects.
         scanner.Discovered += d =>
         {
             if (DateTimeOffset.Now < ignoreBefore) return;
-            if (known is null || d.BluetoothAddress == known.Value.Address)
-            {
-                found.TrySetResult((
-                    new KnownJoyCon2(d.BluetoothAddress, d.Identity.Handedness),
-                    $"Advertisement with Nintendo data (SYNC mode) from {d.DisplayName} {Format(d.BluetoothAddress)} " +
-                    $"(rssi {d.SignalStrengthDbm} dBm)."));
-            }
+            var other = known is { } k && d.BluetoothAddress != k.Address
+                ? $" Switching from {k.DisplayName} {Format(k.Address)}."
+                : "";
+            found.TrySetResult((
+                new KnownJoyCon2(d.BluetoothAddress, d.Identity.Handedness),
+                $"Advertisement with Nintendo data (SYNC mode) from {d.DisplayName} {Format(d.BluetoothAddress)} " +
+                $"(rssi {d.SignalStrengthDbm} dBm).{other}"));
         };
 
         // A controller reconnecting to its last host may send a directed advertisement, which carries
