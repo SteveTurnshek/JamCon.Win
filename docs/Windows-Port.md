@@ -169,10 +169,24 @@ multi-interval gap rather than assume a fixed 15 ms step.
 
 Next run: `--dual`, both controllers removed from Settings, SYNC pressed on each during the scan.
 
-### 4. How does the Windows stack handle sleep/wake and range-loss reconnect? — **Still open.**
+### 4. How does the Windows stack handle sleep/wake and range-loss reconnect? — **Partly answered.**
 
-Partial evidence only: SYNC and HOME both end a session, as above. Whether a known, unpaired
-Joy-Con 2 can be reconnected by a normal button press, without SYNC, is untested.
+SYNC and HOME both end a session, as above. Measured so far with the tray app (2026-10-30):
+
+- **Idle:** a connected Joy-Con 2 streamed for 26 minutes with no drop, until the app was
+  deliberately closed. Whether it was handled during that time was not recorded, so this shows no
+  spontaneous drop over 26 minutes rather than proving how a fully idle controller behaves.
+- **App relaunch:** reconnected to the remembered controller in 12 s with no SYNC and no button
+  press. Windows had kept the Bluetooth link up after the old process exited (the device reported
+  `Connected` with a 512-byte MTU already negotiated), and a connected device does not advertise,
+  so the advertisement wait found nothing and the rationed direct attempt is what connected.
+  Checking for an already-connected device first would cut this to about 2 s; not yet done.
+- **First connection after SYNC:** took four attempts over 40 s. In each failure the link came up,
+  service discovery returned `Unreachable`, and the link dropped within a second. Unverified
+  explanation: SYNC was being pressed during those attempts, which is known to drop a live link.
+
+Still untested: range loss, Bluetooth off/on, PC sleep/wake, and reconnecting after a drop with a
+normal button press.
 
 **Test harness:** the tray app (`src/JamCon.App`), which runs `JoyCon2Link` continuously and logs
 every transition to `%LOCALAPPDATA%\JamCon.Win\logs\jamcon-YYYYMMDD.log`: drop reason, how the
@@ -250,6 +264,44 @@ sidecar: the 20,088-frame run above. Known content, by sidecar timestamp, for as
 | 203.2 | C |
 
 Motion alternates between waving the controller and holding it still throughout.
+
+## Phase 2 and 3: core port and SendInput output
+
+The core (gyro processing, mapping, press/hold engine, output coordination) is ported into
+`JamCon.Core` with upstream's tests translated, and `JamCon.Output` drives the cursor and keyboard
+through SendInput. 129 Core tests and 23 Output tests pass.
+
+**Verification against hardware.** A frame-for-frame comparison with the Swift decoder was not
+possible (no Swift toolchain on Windows). Instead the golden-vector tests replay all 20,088 frames of
+the five-minute capture through the whole engine with the default profile and check the result
+against what physically happened: exactly the 16 expected outputs, in order, for the timed button
+presses, and cursor motion only on frames where the X clutch was held. Two interactive tests
+(`JAMCON_INTERACTIVE_TESTS=1`) drive the real cursor and confirm that absolute moves land on exact
+pixels on every corner of both monitors of a two-monitor layout with a gap between them, and that
+quarter-pixel steps accumulate rather than vanish.
+
+**Still unverified on hardware:** how the gyro mouse *feels*. The tuning is upstream's, validated
+on macOS for this controller and grip; whether it suits Windows desktop use is for a person to judge.
+
+### Traps found during the port
+
+Each would have produced subtly wrong behaviour rather than an error:
+
+- **Arrow keys injected by scan code arrive as numpad keys.** `MapVirtualKey(…, MAPVK_VK_TO_VSC_EX)`
+  returns the Windows key as `0xE05B` but the arrows as bare `0x48`/`0x50`, so the extended flag
+  cannot be derived from it alone. Without the flag, Down-arrow types "2" when NumLock is on. Caught
+  by a unit test; fixed by also flagging known extended keys by virtual-key code.
+- **Absolute coordinates.** The common `pixel × 65535 / width` lands a pixel short over much of the
+  screen, which would show as slow creep up and left. The conversion rounds up instead, which
+  recovers the exact pixel whether Windows truncates or rounds.
+- **Rounding mode.** Swift's `rounded()` takes halves away from zero; C#'s `Math.Round` defaults to
+  banker's rounding. Matters in the settings normalizer.
+- **Integer negation.** The left controller's remap negates raw gyro values; negating
+  `short.MinValue` wraps silently in C# (Swift would trap). Values widen to `int` first.
+- **xUnit's `Assert.Equal(a, b, precision)` rounds both sides** rather than taking a tolerance, so
+  upstream's `accuracy:` assertions are translated to the tolerance overload.
+- **H.NotifyIcon's `ForceCreate` enables Windows Efficiency Mode by default**, which throttles the
+  process. Declined explicitly. Version 2.4.x also ships no .NET 9 build, so 2.3.2 is pinned.
 
 ## Decisions carried in from planning
 

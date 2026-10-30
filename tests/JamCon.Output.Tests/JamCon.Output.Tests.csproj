@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Windows TFM, unlike JamCon.Core.Tests: these tests exercise the P/Invoke layer, whose struct
+    layouts and coordinate math are the parts most likely to be subtly wrong.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(JamConWindowsTfm)</TargetFramework>
+    <SupportedOSPlatformVersion>$(JamConWindowsSupportedOsVersion)</SupportedOSPlatformVersion>
+    <RootNamespace>JamCon.Output.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\JamCon.Output\JamCon.Output.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

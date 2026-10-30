@@ -12,4 +12,8 @@
     <ProjectReference Include="..\JamCon.Core\JamCon.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="JamCon.Output.Tests" />
+  </ItemGroup>
+
 </Project>

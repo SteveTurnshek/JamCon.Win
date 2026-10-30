@@ -6,9 +6,10 @@ JamCon.Win is a Windows-only fork of [jturnshek/JamCon](https://github.com/jturn
 macOS menu-bar app by James Turnshek. This fork drops macOS support entirely and rebuilds the
 application in C#/.NET for Windows, targeting Switch 2 Joy-Con only.
 
-> **Status: pre-alpha, not usable yet.** The solution scaffold is in place; the Bluetooth transport
-> spike has not yet run against hardware. There is nothing to install. See
-> [docs/JamCon-Win-Plan.md](docs/JamCon-Win-Plan.md) for the phase plan.
+> **Status: early, but working.** A right Joy-Con 2 connects from the system tray and works as a
+> gyro mouse and keyboard. There is no installer or settings screen yet; build it from source.
+> Tested on one machine with one controller so far. See [docs/Windows-Port.md](docs/Windows-Port.md)
+> for what has been measured and [docs/JamCon-Win-Plan.md](docs/JamCon-Win-Plan.md) for the plan.
 
 ## Credit to upstream
 
@@ -35,20 +36,66 @@ at the `macos-reference` tag.
 | **Not supported** | Windows 10, macOS, original Joy-Con, Pro Controller, PS VR2 Sense, Logitech G502X |
 
 Windows 10 is excluded deliberately rather than merely untested: its Bluetooth LE stack caps
-notification throughput near 20 Hz, and gyro mouse control at 20 Hz is unusable. Windows 11 is
-expected to sustain roughly 60–70 Hz, matching what upstream measures on macOS — a figure this fork
-will confirm or correct once the transport spike runs.
+notification throughput near 20 Hz, and gyro mouse control at 20 Hz is unusable. On Windows 11 a
+Joy-Con 2 measured 66.8 reports per second sustained over five minutes, the same rate upstream
+measures on macOS.
 
 Original Joy-Con, Pro Controller, Sense, and G502X support existed upstream through macOS-only APIs
 (IOKit HID, GameController, HID++). It was removed rather than ported.
 
-## Planned features
+## Using it
 
-- Gyro mouse control with adaptive smoothing, ported from upstream's tuned implementation
-- Button mapping to clicks, keyboard shortcuts, and Windows system actions
-- Single Joy-Con held sideways, or two Joy-Con fused into one logical device
+1. Build, then run `src/JamCon.App/bin/Release/net9.0-windows10.0.22621.0/JamCon.App.exe`. A Joy-Con
+   icon appears in the notification area (look under the ^ arrow).
+2. **Do not pair the Joy-Con in Windows Bluetooth settings.** JamCon connects to it directly;
+   a Windows pairing stops it working. If you already added it there, remove it.
+3. Hold **SYNC** on the Joy-Con until its lights chase. The tray dot turns green when connected.
+   JamCon remembers the controller and reconnects to it on its own after that.
+4. **Hold X and point the controller to move the cursor.** Release X and the cursor stays put,
+   so a resting controller never drifts it.
+
+Avoid HOME: it wakes a Switch 2 if one is nearby, and the controller reconnects to the console.
+Avoid SYNC once connected: it ends the connection.
+
+Default buttons for a right Joy-Con 2:
+
+| Button | Press | Hold |
+| --- | --- | --- |
+| ZR | Left click | |
+| R | Right click | |
+| + | Middle click | |
+| X | Move cursor while held | |
+| A | Esc | Ctrl+C |
+| Y | Start menu | Enter |
+| HOME | Task View | Play/Pause |
+| Stick click | Browser back | Browser forward |
+| SL / SR | Down / Up arrow | |
+| Stick | Scroll | |
+
+Right-click the tray icon to turn **Mouse control** off (anything held is released at once), to
+recalibrate the gyro, or to open the log folder. Left-click it for a live status window. Settings,
+including button mappings and gyro tuning, are in `%LOCALAPPDATA%\JamCon.Win\settings.json` and can
+be edited by hand while JamCon is closed; a settings screen is still to come.
+
+## Features
+
+Working:
+
+- Gyro mouse with upstream's tuned processing: adaptive One Euro smoothing, automatic drift
+  calibration, an acceleration curve, and absolute cursor positioning unaffected by Windows pointer
+  acceleration
+- Buttons mapped to clicks, keys and Windows actions, with separate tap and hold actions
+- Stick scrolling
+- Automatic reconnection to a remembered controller
+- System tray app with live status and a log
+
+Planned:
+
+- A settings screen for button mapping and gyro tuning
+- Testing the left Joy-Con 2 on hardware (the code supports it), and two Joy-Cons as one device
 - Virtual Xbox gamepad output via ViGEm, as a second output mode
-- System tray application with per-device profiles
+- Upstream's radial menu
+- An installer
 
 ## Building
 

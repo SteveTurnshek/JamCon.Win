@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using JamCon.App.Services;
 using JamCon.App.Tray;
 using JamCon.Bluetooth;
+using JamCon.Core.Engine;
 using JamCon.Core.Gyro;
 
 namespace JamCon.App;
@@ -28,18 +29,20 @@ public partial class StatusWindow : Window
 
     private readonly JoyCon2Link _link;
     private readonly FileLog _log;
+    private readonly SettingsStore _input;
     private readonly DispatcherTimer _timer;
     private readonly Dictionary<string, TextBlock> _values = new();
     private bool _exiting;
 
-    internal StatusWindow(JoyCon2Link link, FileLog log)
+    internal StatusWindow(JoyCon2Link link, FileLog log, SettingsStore input)
     {
         InitializeComponent();
         _link = link;
+        _input = input;
         _log = log;
 
         foreach (var key in (string[])
-                 ["Controller", "Report rate", "Frames", "Connected for", "Reconnects",
+                 ["Output", "Controller", "Report rate", "Frames", "Connected for", "Reconnects",
                   "Last drop", "Last reconnect took", "Gyro (°/s)", "Stick", "Buttons"])
         {
             AddFact(key);
@@ -85,6 +88,7 @@ public partial class StatusWindow : Window
         var s = _link.Status;
         Headline.Text = TrayController.Summarize(s);
         Detail.Text = s.Detail;
+        _values["Output"].Text = TrayController.OutputHint(s, _input.Snapshot()) ?? "Waiting for a controller";
 
         _values["Controller"].Text = s.Controller is { } c
             ? $"{c.DisplayName}  {JoyCon2Link.Format(c.Address)}"

@@ -92,6 +92,7 @@ public sealed class JoyCon2Link : IAsyncDisposable
     private JoyCon2Report? _lastReport;
     private int _reconnects;
     private DateTimeOffset? _streamingSince;
+    private KnownJoyCon2? _streamingController;
     private DateTimeOffset? _droppedAt;
     private string? _lastDropReason;
     private TimeSpan? _lastReconnectDuration;
@@ -103,6 +104,18 @@ public sealed class JoyCon2Link : IAsyncDisposable
 
     /// <summary>Raised each time a controller reaches streaming, so callers can persist it.</summary>
     public event Action<KnownJoyCon2>? ControllerConnected;
+
+    /// <summary>
+    /// A controller began streaming, with its factory stick calibration if one was read. Raised
+    /// before the first frame of the new stream is delivered.
+    /// </summary>
+    public event Action<KnownJoyCon2, JoyCon2StickCalibration?>? StreamStarted;
+
+    /// <summary>
+    /// A stream ended, with the reason. Raised after the old session stops delivering frames, so a
+    /// consumer can release everything that controller was holding down.
+    /// </summary>
+    public event Action<KnownJoyCon2, string>? StreamStopped;
 
     /// <summary>Raised for every input frame while streaming.</summary>
     public event Action<Jc2Frame>? FrameReceived;
@@ -345,7 +358,7 @@ public sealed class JoyCon2Link : IAsyncDisposable
                 return new Outcome(session.DeviceWasPaired ? OutcomeKind.PairedConflict : OutcomeKind.Failed);
             }
 
-            BeginStreaming(controller, via);
+            BeginStreaming(controller, via, session.Calibration);
             ControllerConnected?.Invoke(controller);
 
             while (true)
@@ -371,7 +384,7 @@ public sealed class JoyCon2Link : IAsyncDisposable
         }
     }
 
-    private void BeginStreaming(KnownJoyCon2 controller, ConnectVia via)
+    private void BeginStreaming(KnownJoyCon2 controller, ConnectVia via, JoyCon2StickCalibration? calibration)
     {
         string summary;
         lock (_gate)
@@ -398,25 +411,42 @@ public sealed class JoyCon2Link : IAsyncDisposable
         }
 
         _log(summary);
+        StreamStarted?.Invoke(controller, calibration);
+
+        // Open the frame gate only now, so no frame can be delivered ahead of StreamStarted.
+        lock (_gate)
+        {
+            _streamingController = controller;
+            _lastFrameTimestamp = Stopwatch.GetTimestamp();
+        }
+
         SetState(JoyCon2LinkState.Streaming, $"{controller.DisplayName} connected.");
     }
 
     private void RecordDrop(string reason)
     {
+        KnownJoyCon2? stopped;
         lock (_gate)
         {
             _droppedAt ??= DateTimeOffset.Now;
             _lastDropReason = reason;
             _streamingSince = null;
+            stopped = _streamingController;
+            _streamingController = null;
         }
 
         _log($"Dropped: {reason}.");
+        if (stopped is { } controller) StreamStopped?.Invoke(controller, reason);
     }
 
     private void OnFrame(Jc2Frame frame)
     {
         lock (_gate)
         {
+            // Notifications begin inside ConnectAsync, a moment before the stream is announced.
+            // Withholding them keeps StreamStarted strictly ahead of the stream's first frame.
+            if (_streamingController is null) return;
+
             _frames++;
             _lastFrameTimestamp = Stopwatch.GetTimestamp();
             _cadence.Record(frame.TimestampSeconds);
