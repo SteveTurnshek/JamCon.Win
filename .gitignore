@@ -42,3 +42,6 @@ tools/Jc2Probe/captures/
 .dolt/
 *.db
 .beads-credential-key
+
+# Local session logs (command log, chat history). Personal working notes; never pushed.
+session-notes/

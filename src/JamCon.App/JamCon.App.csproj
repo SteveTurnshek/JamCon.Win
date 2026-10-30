@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- WPF tray application (Phase 5). Tray icon package added when the UI lands. -->
+  <!--
+    WPF tray application. Started early (ahead of Phase 5) as the host for the connection loop and
+    reconnect testing; mouse output and the full settings UI are still to come.
+  -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>$(JamConWindowsTfm)</TargetFramework>
@@ -14,6 +17,18 @@
     <ProjectReference Include="..\JamCon.Bluetooth\JamCon.Bluetooth.csproj" />
     <ProjectReference Include="..\JamCon.Core\JamCon.Core.csproj" />
     <ProjectReference Include="..\JamCon.Output\JamCon.Output.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      2.3.2, not the newer 2.4.x: 2.4 ships only net10.0 and net462 builds, so on net9.0 NuGet
+      silently falls back to the .NET Framework assembly (warning NU1701). 2.3.2 has a net9.0 build.
+    -->
+    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.3.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\*.png" />
   </ItemGroup>
 
 </Project>

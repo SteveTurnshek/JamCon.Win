@@ -49,11 +49,25 @@ public sealed class JoyCon2Session : IAsyncDisposable
 
     private TaskCompletionSource<byte[]>? _pendingResponse;
     private readonly Stopwatch _clock = new();
+    private readonly int _discoveryAttempts;
+    private readonly bool _allowPairing;
 
-    public JoyCon2Session(ulong address, Action<string> log)
+    /// <param name="discoveryAttempts">
+    /// Service-discovery attempts, about three seconds apart, before giving up. The probe uses a
+    /// long window so a person has time to wake the controller; a reconnect loop wants a short one
+    /// and retries at its own level.
+    /// </param>
+    /// <param name="allowPairing">
+    /// Whether to fall back to OS pairing when unpaired GATT fails. Off by default because hardware
+    /// showed pairing <i>breaks</i> the Joy-Con 2 link on Windows (docs/Windows-Port.md, question 1).
+    /// Kept only so the experiment can be repeated.
+    /// </param>
+    public JoyCon2Session(ulong address, Action<string> log, int discoveryAttempts = 40, bool allowPairing = false)
     {
         _address = address;
         _log = log;
+        _discoveryAttempts = discoveryAttempts;
+        _allowPairing = allowPairing;
     }
 
     /// <summary>Raised for every common-input notification.</summary>
@@ -68,6 +82,12 @@ public sealed class JoyCon2Session : IAsyncDisposable
     public JoyCon2ReportRate? NegotiatedReportRate { get; private set; }
     public string DeviceName => JoyCon2Advertisement.DisplayName(Handedness);
 
+    /// <summary>
+    /// True when Windows already had the controller paired. On Joy-Con 2 that state is known to stop
+    /// GATT from working, so callers should tell the user to remove it in Bluetooth settings.
+    /// </summary>
+    public bool DeviceWasPaired { get; private set; }
+
     public async Task<bool> ConnectAsync(JoyCon2Handedness handedness, CancellationToken ct)
     {
         Handedness = handedness;
@@ -80,21 +100,21 @@ public sealed class JoyCon2Session : IAsyncDisposable
         }
 
         var wasPaired = _device.DeviceInformation.Pairing.IsPaired;
+        DeviceWasPaired = wasPaired;
         _log($"Device object acquired. Already paired: {wasPaired}. Status: {_device.ConnectionStatus}.");
 
         await RequestThroughputOptimizedParametersAsync();
         await OpenGattSessionAsync();
 
-        var service = await FindServiceWithRetryAsync(ct);
+        var service = await FindServiceWithRetryAsync(ct, _discoveryAttempts);
 
-        if (service is null && !wasPaired)
+        if (service is null && !wasPaired && _allowPairing)
         {
-            // OPEN QUESTION #1: this is the branch that answers it. If we get here, unpaired GATT
-            // did not work on Windows even though it does on CoreBluetooth.
+            // Experimental only: hardware showed pairing breaks the link rather than enabling it.
             _log("Unpaired GATT failed. Attempting to pair, then retrying service discovery.");
             if (!await TryPairAsync(ct)) return false;
 
-            service = await FindServiceWithRetryAsync(ct);
+            service = await FindServiceWithRetryAsync(ct, _discoveryAttempts);
             ConnectPath = Jc2ConnectPath.PairedAfterFailure;
         }
         else

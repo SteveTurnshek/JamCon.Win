@@ -174,6 +174,27 @@ Next run: `--dual`, both controllers removed from Settings, SYNC pressed on each
 Partial evidence only: SYNC and HOME both end a session, as above. Whether a known, unpaired
 Joy-Con 2 can be reconnected by a normal button press, without SYNC, is untested.
 
+**Test harness:** the tray app (`src/JamCon.App`), which runs `JoyCon2Link` continuously and logs
+every transition to `%LOCALAPPDATA%\JamCon.Win\logs\jamcon-YYYYMMDD.log`: drop reason, how the
+controller was found again (advertisement or direct attempt), and how long reconnecting took. It
+remembers the controller's address in `%LOCALAPPDATA%\JamCon.Win\settings.json`.
+
+Starting policy, to be replaced by measured values: wait 3 s after a drop, then wait for an
+advertisement in 10 s windows, with a direct connection attempt at most every 30 s. A stream with
+no reports for 2 s counts as dropped. Upstream's warning that repeated attempts push the firmware
+into a reconnect cooldown is why direct attempts are rationed.
+
+Scenarios to run, each followed by reading the log:
+
+| Scenario | What it answers |
+| --- | --- |
+| Leave the controller untouched | Does an idle Joy-Con 2 drop or sleep, and after how long? |
+| Walk out of range and back | Does it come back on its own, or need a button press? |
+| Press a normal button after a drop | Can it reconnect without SYNC? |
+| Turn Windows Bluetooth off, then on | Radio-off detection and recovery |
+| Sleep the PC, wake it | Resume handling; `RequestReconnect` fires on resume |
+| Exit and relaunch the app | Reconnecting to the remembered controller without SYNC |
+
 ### Initialization sequence — verified
 
 All commands acknowledged in the documented order: `setFeatureMask`, `enableFeatures`,
