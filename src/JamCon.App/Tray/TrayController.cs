@@ -261,6 +261,12 @@ internal sealed class TrayController : IDisposable
         _settingsWindow?.OpenButtonEditor();
     }
 
+    public void ShowRadialEditor()
+    {
+        ShowSettingsWindow();
+        _settingsWindow?.OpenRadialEditor();
+    }
+
     public void ShowStatusWindow()
     {
         try

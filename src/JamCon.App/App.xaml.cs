@@ -118,6 +118,7 @@ public partial class App : Application
         if (e.Args.Contains("--show-status")) _tray.ShowStatusWindow(); // dev aids: the same paths as the tray
         if (e.Args.Contains("--show-settings")) _tray.ShowSettingsWindow();
         if (e.Args.Contains("--show-buttons")) _tray.ShowButtonEditor();
+        if (e.Args.Contains("--show-radial-editor")) _tray.ShowRadialEditor();
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
         _log.Write($"Mouse control is {(_input.Snapshot().IsEnabled ? "on" : "off")}. Settings: {AppPaths.SettingsFile}");

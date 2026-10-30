@@ -159,6 +159,9 @@ internal sealed class SettingsWindow : Window
         edit.Click += (_, _) => OpenButtonEditor();
         panel.Children.Add(edit);
         panel.Children.Add(Hint("Every button's tap, hold and double-tap actions, for each mode, alone or in a pair."));
+        var radial = new Button { Content = "Edit radial menu…", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+        radial.Click += (_, _) => OpenRadialEditor();
+        panel.Children.Add(radial);
         Slider(panel, "Hold time", 0.1, 1.0, 0.05,
             () => _input.Snapshot().HoldThreshold,
             v => _input.Update(s => s with { HoldThreshold = v }),
@@ -227,6 +230,20 @@ internal sealed class SettingsWindow : Window
     }
 
     private ButtonEditorWindow? _buttonEditor;
+
+    private RadialMenuEditorWindow? _radialEditor;
+
+    public void OpenRadialEditor()
+    {
+        if (_radialEditor is null)
+        {
+            _radialEditor = new RadialMenuEditorWindow(_input) { Owner = this };
+            _radialEditor.Closed += (_, _) => _radialEditor = null;
+        }
+
+        _radialEditor.Show();
+        _radialEditor.Activate();
+    }
 
     public void OpenButtonEditor()
     {

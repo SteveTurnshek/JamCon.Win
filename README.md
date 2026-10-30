@@ -82,18 +82,21 @@ let go), double tap Y for Enter, and tap then hold Y to delete a word every half
 (Ctrl+Backspace) until you let go. A single tap does nothing. Dictation starts 0.3 s into the hold.
 
 The radial menu's default slices are the four arrow keys, as upstream. While it is open the cursor
-holds still and a dot follows the controller instead.
+holds still and a dot follows the controller instead. Its slices, an optional outer ring, rotation
+and sizes are editable in settings, with a live preview.
 
 After 10 minutes without use, JamCon disconnects so the Joy-Con can sleep and save its battery.
 Hold SYNC to wake it. Right-click the tray icon to
 put it to sleep sooner, turn **Mouse control** off (anything held is released at once), recalibrate
 the gyro, or open the log folder. It also has a live status window and log.
 
-**Left-click the tray icon for settings:** cursor speed and smoothing for each mode, scrolling,
-the sleep delay, smooth motion, and starting with Windows. Changes apply at once. Smooth motion
-re-emits the controller's ~67 Hz motion at 240 Hz for smooth movement on high-refresh displays,
-at a cost of about 7.5 ms of latency. Button mappings are not editable there yet; they live in
-`%LOCALAPPDATA%\JamCon.Win\settings.json`, which can be edited by hand while JamCon is closed.
+**Left-click the tray icon for settings:** cursor speed and smoothing for each mode (plus upstream's
+advanced acceleration and filter controls), Xbox controller aiming, scrolling, hold and double-tap
+timing, the sleep delay, smooth motion, and starting with Windows. From there, **Edit buttons**
+remaps every button's tap, hold, double-tap and tap-then-hold actions for each mode, alone or in a
+pair, and **Edit radial menu** changes the menu. Changes apply at once. Smooth motion re-emits the
+controller's ~67 Hz motion at 240 Hz for smooth movement on high-refresh displays, at a cost of
+about 7.5 ms of latency. Everything is stored in `%LOCALAPPDATA%\JamCon.Win\settings.json`.
 
 ## Modes
 
@@ -178,12 +181,12 @@ Working:
 - Automatic reconnection to a remembered controller, and idle sleep to save its battery
 - Game mode: gyro mouse look, stick as W A S D, held game keys; with both Joy-Cons, Splatoon-style aim, turn and level view
 - Xbox controller mode (ViGEmBus) with gyro aiming through the right stick or the mouse
-- Settings window, Start menu shortcut, and optional start with Windows
+- Settings window with button remapping, a radial menu editor and advanced gyro tuning
+- Start menu shortcut, and optional start with Windows
 - System tray app with live status and a log
 
 Planned:
 
-- Button remapping in the settings window
 - Hardware testing of two Joy-Cons together
 - An installer
 
