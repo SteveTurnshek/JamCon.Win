@@ -114,6 +114,31 @@ are held for as long as their buttons are.
 | + | Esc |
 | C (hold) | Back to desktop mode |
 
+### Both Joy-Cons
+
+Hold SYNC on each Joy-Con; JamCon remembers one of each and uses them as one controller. In
+desktop mode each keeps its own buttons, and only the right one's gyro moves the cursor (a clutch
+held on either hand works). In game mode the pair plays like a Switch 2 game with motion controls,
+such as Splatoon:
+
+| Button | Game mode, both Joy-Cons |
+| --- | --- |
+| Right gyro | Aim |
+| Left stick | W A S D |
+| Right stick | Turn left / right (speed in settings) |
+| Y | Level the view, like Splatoon's camera reset |
+| ZR / R | Left / right click |
+| B / A / X | Space / E / R |
+| ZL / L | Ctrl / Q |
+| Left stick click / right stick click | Shift / V |
+| D-pad | 1 2 3 4 |
+| + / − | Esc / Tab |
+| C or Capture (hold) | Back to desktop mode |
+
+Levelling the view undoes the up/down aim JamCon has sent since the last level (or since game mode
+began). It is approximate: motion the game stopped at its look limit, or from a real mouse, is not
+counted.
+
 A virtual Xbox controller mode, for games that only take a gamepad, is planned.
 
 ## Features
@@ -128,14 +153,14 @@ Working:
 - Upstream's radial menu
 - Smooth 240 Hz cursor and scroll output from the controller's ~67 Hz reports
 - Automatic reconnection to a remembered controller, and idle sleep to save its battery
-- Game mode: gyro mouse look, stick as W A S D, held game keys
+- Game mode: gyro mouse look, stick as W A S D, held game keys; with both Joy-Cons, Splatoon-style aim, turn and level view
 - Settings window, Start menu shortcut, and optional start with Windows
 - System tray app with live status and a log
 
 Planned:
 
 - Button remapping in the settings window
-- Testing the left Joy-Con 2 on hardware (the code supports it), and two Joy-Cons as one device
+- Hardware testing of two Joy-Cons together
 - A virtual Xbox controller game mode via ViGEm
 - An installer
 

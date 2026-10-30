@@ -30,6 +30,10 @@ public static class VirtualKeys
     public const ushort Return = 0x0D;
     public const ushort Escape = 0x1B;
     public const ushort Space = 0x20;
+    public const ushort Digit1 = 0x31;
+    public const ushort Digit2 = 0x32;
+    public const ushort Digit3 = 0x33;
+    public const ushort Digit4 = 0x34;
     public const ushort Left = 0x25;
     public const ushort Up = 0x26;
     public const ushort Right = 0x27;
@@ -43,6 +47,7 @@ public static class VirtualKeys
     public const ushort Q = 0x51;
     public const ushort R = 0x52;
     public const ushort S = 0x53;
+    public const ushort V = 0x56;
     public const ushort W = 0x57;
     public const ushort LeftShift = 0xA0;
     public const ushort LeftControl = 0xA2;
@@ -122,6 +127,7 @@ public enum SystemAction
 [JsonDerivedType(typeof(HoldToggleAction), "holdToggle")]
 [JsonDerivedType(typeof(RepeatKeyAction), "repeatKey")]
 [JsonDerivedType(typeof(ToggleModeAction), "toggleMode")]
+[JsonDerivedType(typeof(LevelViewAction), "levelView")]
 public abstract record ButtonAction
 {
     public static ButtonAction None { get; } = new NoAction();
@@ -129,6 +135,7 @@ public abstract record ButtonAction
     public static ButtonAction Scroll { get; } = new ScrollAction();
     public static ButtonAction RadialMenu { get; } = new RadialMenuAction();
     public static ButtonAction ToggleMode { get; } = new ToggleModeAction();
+    public static ButtonAction LevelView { get; } = new LevelViewAction();
 
     public static ButtonAction Click(MouseButton button) => new MouseClickAction(button);
     public static ButtonAction Key(ushort virtualKey, KeyModifiers modifiers = KeyModifiers.None) =>
@@ -221,6 +228,16 @@ public sealed record RepeatKeyAction(KeyCombo Combo, double IntervalSeconds) : B
 public sealed record ToggleModeAction : ButtonAction
 {
     public override string DisplayName => "Switch desktop/game mode";
+}
+
+/// <summary>
+/// Game mode's answer to Splatoon's Y (reset camera): undoes the vertical aim JamCon has sent
+/// since the last reset, so the view is level again. Approximate: motion the game clamped at its
+/// look limit, or from a real mouse, is not accounted for.
+/// </summary>
+public sealed record LevelViewAction : ButtonAction
+{
+    public override string DisplayName => "Level the view";
 }
 
 /// <summary>

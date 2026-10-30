@@ -19,18 +19,18 @@ internal sealed class SettingsWindow : Window
 {
     private readonly SettingsStore _input;
     private readonly AppSettingsFile _file;
-    private readonly JoyCon2Link _link;
+    private readonly IReadOnlyList<JoyCon2Link> _links;
     private readonly PacedOutputSink _paced;
     private readonly FileLog _log;
     private readonly TextBlock _mode = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
     private readonly List<Action> _refreshers = [];
     private bool _loading;
 
-    public SettingsWindow(SettingsStore input, AppSettingsFile file, JoyCon2Link link, PacedOutputSink paced, FileLog log, Action showStatus)
+    public SettingsWindow(SettingsStore input, AppSettingsFile file, IReadOnlyList<JoyCon2Link> links, PacedOutputSink paced, FileLog log, Action showStatus)
     {
         _input = input;
         _file = file;
-        _link = link;
+        _links = links;
         _paced = paced;
         _log = log;
 
@@ -59,7 +59,7 @@ internal sealed class SettingsWindow : Window
             SmoothingLabel,
             "More smoothing steadies the cursor but adds lag.");
 
-        Section(panel, "Game", "Gyro always aims, like moving a mouse. The stick walks with W A S D.");
+        Section(panel, "Game", "Gyro always aims, like moving a mouse. The stick walks with W A S D. With both Joy-Cons, play as in a Switch 2 motion-controls game: the right aims, the left walks.");
         Slider(panel, "Aim speed", 2, 80, 0.5,
             () => _input.Snapshot().GameGyro.Sensitivity / 10.0,
             v => _input.Update(s => s with { GameGyro = s.GameGyro with { Sensitivity = v * 10.0 } }),
@@ -72,6 +72,11 @@ internal sealed class SettingsWindow : Window
         Check(panel, "Stick moves with W A S D",
             () => _input.Snapshot().GameStickMovement,
             v => _input.Update(s => s with { GameStickMovement = v }));
+        Slider(panel, "Right stick turn speed (both Joy-Cons)", 60, 720, 10,
+            () => _input.Snapshot().GameStickTurnSpeed,
+            v => _input.Update(s => s with { GameStickTurnSpeed = v }),
+            v => $"{v:0} °/s",
+            "With both Joy-Cons, the right stick turns you left and right for turns too big for your wrist. Y levels the view.");
 
         Section(panel, "Scrolling", "In desktop mode the stick scrolls.");
         Slider(panel, "Scroll speed", 1, 30, 0.5,
@@ -90,7 +95,7 @@ internal sealed class SettingsWindow : Window
             v =>
             {
                 _file.SetIdleSleepMinutes((int)v);
-                _link.IdleTimeout = v > 0 ? TimeSpan.FromMinutes(v) : null;
+                foreach (var link in _links) link.IdleTimeout = v > 0 ? TimeSpan.FromMinutes(v) : null;
             },
             v => v == 0 ? "Never" : $"{v:0} min",
             "Disconnects so the Joy-Con can sleep. Hold SYNC to wake it.");
@@ -157,8 +162,10 @@ internal sealed class SettingsWindow : Window
     /// <summary>The button the current layout uses to switch modes, by name.</summary>
     private string SwitchButton(InputSettings s)
     {
-        var handedness = _link.Status.Controller?.Handedness ?? JoyCon2Handedness.Right;
-        var profile = s.ButtonsFor(handedness);
+        // The right Joy-Con's button when it is connected (a pair switches with it too), else the left's.
+        var connected = _links.Where(l => l.Status.State == JoyCon2LinkState.Streaming).Select(l => l.Side).ToList();
+        var handedness = connected.Count == 1 ? connected[0] : JoyCon2Handedness.Right;
+        var profile = s.ButtonsFor(handedness, paired: connected.Count == 2);
         var button = profile.Mappings.FirstOrDefault(m => m.Value.Hold is ToggleModeAction || m.Value.Press is ToggleModeAction);
         return button.Value is null ? "the mode button" : JoyCon2ButtonLayout.DisplayName(button.Key);
     }
@@ -185,11 +192,12 @@ internal sealed class SettingsWindow : Window
             Gyro = GyroSettings.Default,
             GameGyro = GyroSettings.GameDefault,
             GameStickMovement = true,
+            GameStickTurnSpeed = InputSettings.DefaultGameStickTurnSpeed,
             JoystickScrollSpeed = InputSettings.DefaultJoystickScrollSpeed,
             JoystickScrollAcceleration = InputSettings.DefaultJoystickScrollAcceleration,
         });
         _file.SetIdleSleepMinutes(AppSettingsFile.DefaultIdleSleepMinutes);
-        _link.IdleTimeout = TimeSpan.FromMinutes(AppSettingsFile.DefaultIdleSleepMinutes);
+        foreach (var link in _links) link.IdleTimeout = TimeSpan.FromMinutes(AppSettingsFile.DefaultIdleSleepMinutes);
         _file.SetSmoothMotion(true);
         _paced.Enabled = true;
         _log.Write("Settings restored to defaults (mode, buttons and startup unchanged).");

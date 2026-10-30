@@ -7,6 +7,8 @@ using JamCon.App.Tray;
 using JamCon.Bluetooth;
 using JamCon.Core.Engine;
 using JamCon.Core.Gyro;
+using JamCon.Core.Mapping;
+using JamCon.Core.Protocol;
 
 namespace JamCon.App;
 
@@ -17,27 +19,17 @@ public partial class StatusWindow : Window
 {
     private const int MaxLogLines = 500;
 
-    /// <summary>
-    /// Display names for the button bits verified on hardware (docs/Windows-Port.md). Display only:
-    /// real mapping belongs in JamCon.Core and arrives with the Phase 2 port.
-    /// </summary>
-    private static readonly (int Bit, string Name)[] VerifiedButtons =
-    [
-        (0, "Y"), (1, "X"), (2, "B"), (3, "A"), (4, "SR"), (5, "SL"), (6, "R"), (7, "ZR"),
-        (9, "Plus"), (10, "Stick"), (14, "C"),
-    ];
-
-    private readonly JoyCon2Link _link;
+    private readonly IReadOnlyList<JoyCon2Link> _links;
     private readonly FileLog _log;
     private readonly SettingsStore _input;
     private readonly DispatcherTimer _timer;
     private readonly Dictionary<string, TextBlock> _values = new();
     private bool _exiting;
 
-    internal StatusWindow(JoyCon2Link link, FileLog log, SettingsStore input)
+    internal StatusWindow(IReadOnlyList<JoyCon2Link> links, FileLog log, SettingsStore input)
     {
         InitializeComponent();
-        _link = link;
+        _links = links;
         _input = input;
         _log = log;
 
@@ -85,14 +77,19 @@ public partial class StatusWindow : Window
 
     private void Update()
     {
-        var s = _link.Status;
-        Headline.Text = TrayController.Summarize(s);
+        // Headline and output cover both hands. The facts below are the primary link's (a streaming
+        // one first); Controller lists every remembered Joy-Con with its state.
+        var statuses = _links.Select(l => l.Status).ToArray();
+        var s = TrayController.Primary(statuses);
+        Headline.Text = TrayController.Summarize(statuses);
         Detail.Text = s.Detail;
-        _values["Output"].Text = TrayController.OutputHint(s, _input.Snapshot()) ?? "Waiting for a controller";
+        _values["Output"].Text = TrayController.OutputHint(statuses, _input.Snapshot()) ?? "Waiting for a controller";
 
-        _values["Controller"].Text = s.Controller is { } c
-            ? $"{c.DisplayName}  {JoyCon2Link.Format(c.Address)}"
-            : "none remembered";
+        var controllers = statuses
+            .Where(x => x.Controller is not null)
+            .Select(x => $"{x.Controller!.Value.DisplayName}  {JoyCon2Link.Format(x.Controller.Value.Address)}  ({x.State})")
+            .ToArray();
+        _values["Controller"].Text = controllers.Length == 0 ? "none remembered" : string.Join("\n", controllers);
         _values["Report rate"].Text = s.State == JoyCon2LinkState.Streaming ? $"{s.RateHz:F1} Hz" : "—";
         _values["Frames"].Text = s.Frames.ToString("N0");
         _values["Connected for"].Text = s.StreamingSince is { } since ? Format(DateTimeOffset.Now - since) : "—";
@@ -104,8 +101,13 @@ public partial class StatusWindow : Window
         {
             var k = GyroConstants.DegreesPerSecondPerCount;
             _values["Gyro (°/s)"].Text = $"X {r.Imu.GyroX * k,7:F1}   Y {r.Imu.GyroY * k,7:F1}   Z {r.Imu.GyroZ * k,7:F1}";
-            _values["Stick"].Text = $"{r.RightStick.X}, {r.RightStick.Y}";
-            var pressed = VerifiedButtons.Where(b => (r.Buttons & (1u << b.Bit)) != 0).Select(b => b.Name).ToArray();
+            var side = s.Controller?.Handedness ?? JoyCon2Handedness.Right;
+            var stick = side == JoyCon2Handedness.Right ? r.RightStick : r.LeftStick;
+            _values["Stick"].Text = $"{stick.X}, {stick.Y}";
+            var pressed = JoyCon2ButtonLayout.AvailableButtons(side)
+                .Where(b => JoyCon2ButtonLayout.IsPressed(r.Buttons, b, side))
+                .Select(JoyCon2ButtonLayout.DisplayName)
+                .ToArray();
             _values["Buttons"].Text = pressed.Length == 0 ? "none" : string.Join(" ", pressed);
         }
         else

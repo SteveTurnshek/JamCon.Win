@@ -7,6 +7,7 @@ using JamCon.App.Services;
 using JamCon.Bluetooth;
 using JamCon.Core.Engine;
 using JamCon.Core.Mapping;
+using JamCon.Core.Protocol;
 using JamCon.Output;
 
 namespace JamCon.App.Tray;
@@ -17,7 +18,7 @@ namespace JamCon.App.Tray;
 /// </summary>
 internal sealed class TrayController : IDisposable
 {
-    private readonly JoyCon2Link _link;
+    private readonly IReadOnlyList<JoyCon2Link> _links;
     private readonly FileLog _log;
     private readonly AppSettingsFile _settingsFile;
     private readonly SettingsStore _input;
@@ -34,10 +35,10 @@ internal sealed class TrayController : IDisposable
     private SettingsWindow? _settingsWindow;
 
     public TrayController(
-        JoyCon2Link link, FileLog log, AppSettingsFile settingsFile, SettingsStore input, EngineHost engine, PacedOutputSink pacedOutput)
+        IReadOnlyList<JoyCon2Link> links, FileLog log, AppSettingsFile settingsFile, SettingsStore input, EngineHost engine, PacedOutputSink pacedOutput)
     {
         _pacedOutput = pacedOutput;
-        _link = link;
+        _links = links;
         _log = log;
         _settingsFile = settingsFile;
         _input = input;
@@ -48,14 +49,17 @@ internal sealed class TrayController : IDisposable
         _mouseControlItem = new MenuItem { Header = "Mouse control", IsCheckable = true };
         _mouseControlItem.Click += (_, _) => SetMouseControl(_mouseControlItem.IsChecked);
 
-        _forgetItem = new MenuItem { Header = "Forget this Joy-Con" };
+        _forgetItem = new MenuItem { Header = "Forget remembered Joy-Cons" };
 
-        _sleepItem = new MenuItem { Header = "Put Joy-Con to sleep" };
-        _sleepItem.Click += (_, _) => _link.SleepNow();
+        _sleepItem = new MenuItem { Header = "Put Joy-Cons to sleep" };
+        _sleepItem.Click += (_, _) =>
+        {
+            foreach (var link in _links) link.SleepNow();
+        };
         _forgetItem.Click += (_, _) =>
         {
             _settingsFile.Forget();
-            _link.Forget();
+            foreach (var link in _links) link.Forget();
         };
 
         _icon = new TaskbarIcon
@@ -71,7 +75,7 @@ internal sealed class TrayController : IDisposable
         // that has to keep up with 67 reports a second, so it is explicitly declined.
         _icon.ForceCreate(enablesEfficiencyMode: false);
 
-        _link.StatusChanged += _ => _icon.Dispatcher.BeginInvoke(Refresh);
+        foreach (var link in _links) link.StatusChanged += _ => _icon.Dispatcher.BeginInvoke(Refresh);
         _input.Changed += _ => _icon.Dispatcher.BeginInvoke(Refresh);
         _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += (_, _) => Refresh();
@@ -94,7 +98,10 @@ internal sealed class TrayController : IDisposable
         };
 
         var reconnect = new MenuItem { Header = "Reconnect now" };
-        reconnect.Click += (_, _) => _link.RequestReconnect("reconnect requested from the tray menu");
+        reconnect.Click += (_, _) =>
+        {
+            foreach (var link in _links) link.RequestReconnect("reconnect requested from the tray menu");
+        };
 
         var logs = new MenuItem { Header = "Open log folder" };
         logs.Click += (_, _) => Process.Start(new ProcessStartInfo("explorer.exe", $"\"{_log.DirectoryPath}\""));
@@ -133,25 +140,48 @@ internal sealed class TrayController : IDisposable
 
     private void Refresh()
     {
-        var status = _link.Status;
+        var statuses = Statuses();
         var settings = _input.Snapshot();
-        var summary = Summarize(status);
-        var hint = OutputHint(status, settings);
+        var summary = Summarize(statuses);
+        var hint = OutputHint(statuses, settings);
 
         // The shell truncates notification-area tooltips at 127 characters.
         var tooltip = hint is null ? $"JamCon.Win\n{summary}" : $"JamCon.Win\n{summary}\n{hint}";
         _icon.ToolTipText = tooltip.Length <= 127 ? tooltip : tooltip[..127];
         _statusItem.Header = summary;
         _mouseControlItem.IsChecked = settings.IsEnabled;
-        _forgetItem.IsEnabled = _settingsFile.Controller is not null;
-        _sleepItem.IsEnabled = status.State == JoyCon2LinkState.Streaming;
+        _forgetItem.IsEnabled = _settingsFile.HasControllers;
+        _sleepItem.IsEnabled = statuses.Any(s => s.State == JoyCon2LinkState.Streaming);
 
-        var wanted = (TrayIconRenderer.ToneFor(status.State), TrayIconRenderer.TaskbarIsLight());
+        var wanted = (TrayIconRenderer.ToneFor(Primary(statuses).State), TrayIconRenderer.TaskbarIsLight());
         if (_shownIcon != wanted)
         {
             _icon.Icon = TrayIconRenderer.Get(wanted.Item1, wanted.Item2);
             _shownIcon = wanted;
         }
+    }
+
+    private JoyCon2LinkStatus[] Statuses() => _links.Select(l => l.Status).ToArray();
+
+    /// <summary>The link that best represents the app: a streaming one, else one with a remembered controller.</summary>
+    public static JoyCon2LinkStatus Primary(IReadOnlyList<JoyCon2LinkStatus> statuses) =>
+        statuses.FirstOrDefault(s => s.State == JoyCon2LinkState.Streaming)
+        ?? statuses.FirstOrDefault(s => s.Controller is not null)
+        ?? statuses[0];
+
+    /// <summary>
+    /// One line for both hands. A side with no remembered controller is left out unless neither has
+    /// one, so a lone right Joy-Con does not read as a missing left one.
+    /// </summary>
+    public static string Summarize(IReadOnlyList<JoyCon2LinkStatus> statuses)
+    {
+        if (statuses.Count(s => s.State == JoyCon2LinkState.Streaming) == 2)
+        {
+            return $"Both Joy-Cons connected, {statuses.Min(s => s.RateHz):F1} Hz";
+        }
+
+        var known = statuses.Where(s => s.Controller is not null || s.State == JoyCon2LinkState.Streaming).Select(Summarize).ToList();
+        return known.Count == 0 ? Summarize(statuses[0]) : string.Join("; ", known);
     }
 
     public static string Summarize(JoyCon2LinkStatus status)
@@ -161,7 +191,7 @@ internal sealed class TrayController : IDisposable
         {
             JoyCon2LinkState.Streaming => $"{name}: connected, {status.RateHz:F1} Hz",
             JoyCon2LinkState.Connecting => $"Connecting to {name}…",
-            JoyCon2LinkState.Searching => "Hold SYNC on a Joy-Con 2",
+            JoyCon2LinkState.Searching => status.Controller is null ? "Hold SYNC on a Joy-Con 2" : $"Waiting for {name}",
             JoyCon2LinkState.Reconnecting => $"Reconnecting to {name}…",
             JoyCon2LinkState.BluetoothOff => "Bluetooth is off",
             JoyCon2LinkState.PairedConflict => $"Remove {name} in Windows Bluetooth settings",
@@ -170,18 +200,26 @@ internal sealed class TrayController : IDisposable
         };
     }
 
-    /// <summary>What the controller does right now, in one line: off, or how to move the cursor.</summary>
-    public static string? OutputHint(JoyCon2LinkStatus status, InputSettings settings)
+    /// <summary>What the controllers do right now, in one line: off, or how to move the cursor.</summary>
+    public static string? OutputHint(IReadOnlyList<JoyCon2LinkStatus> statuses, InputSettings settings)
     {
         if (!settings.IsEnabled) return "Mouse control is off";
-        if (status.State != JoyCon2LinkState.Streaming || status.Controller is not { } controller) return null;
+        var connected = statuses
+            .Where(s => s.State == JoyCon2LinkState.Streaming && s.Controller is not null)
+            .Select(s => s.Controller!.Value)
+            .ToList();
+        if (connected.Count == 0) return null;
         if (!settings.CursorControlEnabled) return "Buttons only; cursor control is off";
 
-        var profile = settings.ButtonsFor(controller.Handedness);
+        // A pair aims with the right Joy-Con.
+        var paired = connected.Count == 2;
+        var aiming = connected.FirstOrDefault(c => c.Handedness == JoyCon2Handedness.Right, connected[0]);
+        var profile = settings.ButtonsFor(aiming.Handedness, paired);
         if (settings.Mode == InputMode.Game)
         {
             var toggle = profile.Mappings.FirstOrDefault(m => m.Value.Hold is ToggleModeAction).Key;
-            return $"Game mode: gyro aims. Hold {JoyCon2ButtonLayout.DisplayName(toggle)} for desktop";
+            var back = $"Hold {JoyCon2ButtonLayout.DisplayName(toggle)} for desktop";
+            return paired ? $"Game mode: right Joy-Con aims, Y levels the view. {back}" : $"Game mode: gyro aims. {back}";
         }
 
         var clutch = profile.Mappings.FirstOrDefault(m => m.Value.Press is JamCon.Core.Mapping.DragAction).Key;
@@ -196,7 +234,7 @@ internal sealed class TrayController : IDisposable
         {
             if (_settingsWindow is null)
             {
-                _settingsWindow = new SettingsWindow(_input, _settingsFile, _link, _pacedOutput, _log, ShowStatusWindow);
+                _settingsWindow = new SettingsWindow(_input, _settingsFile, _links, _pacedOutput, _log, ShowStatusWindow);
                 _settingsWindow.Closed += (_, _) => _settingsWindow = null;
             }
 
@@ -215,7 +253,7 @@ internal sealed class TrayController : IDisposable
     {
         try
         {
-            _window ??= new StatusWindow(_link, _log, _input);
+            _window ??= new StatusWindow(_links, _log, _input);
             _window.Show();
             if (_window.WindowState == WindowState.Minimized) _window.WindowState = WindowState.Normal;
             _window.Activate();

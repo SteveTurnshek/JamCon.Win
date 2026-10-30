@@ -13,6 +13,7 @@ public sealed record InputSettings
 {
     public const double DefaultJoystickScrollSpeed = 8.0;
     public const double DefaultJoystickScrollAcceleration = 3.0;
+    public const double DefaultGameStickTurnSpeed = 270.0;
 
     public static InputSettings Default { get; } = new();
 
@@ -32,6 +33,13 @@ public sealed record InputSettings
     public ButtonMappingProfile GameRightButtons { get; init; } = ButtonMappingProfile.GameDefaultFor(JoyCon2Handedness.Right);
     public ButtonMappingProfile GameLeftButtons { get; init; } = ButtonMappingProfile.GameDefaultFor(JoyCon2Handedness.Left);
 
+    /// <summary>Game mode with both Joy-Cons connected; see <see cref="ButtonMappingProfile.GamePairDefaultFor"/>.</summary>
+    public ButtonMappingProfile GamePairRightButtons { get; init; } = ButtonMappingProfile.GamePairDefaultFor(JoyCon2Handedness.Right);
+    public ButtonMappingProfile GamePairLeftButtons { get; init; } = ButtonMappingProfile.GamePairDefaultFor(JoyCon2Handedness.Left);
+
+    /// <summary>With both Joy-Cons in game mode, how fast a full right-stick push turns, in degrees a second.</summary>
+    public double GameStickTurnSpeed { get; init; } = DefaultGameStickTurnSpeed;
+
     /// <summary>In game mode, the stick holds W, A, S and D instead of scrolling.</summary>
     public bool GameStickMovement { get; init; } = true;
 
@@ -44,12 +52,17 @@ public sealed record InputSettings
 
     public RadialMenuConfiguration RadialMenu { get; init; } = RadialMenuConfiguration.Default;
 
-    /// <summary>The buttons in effect: the current mode's profile for that side.</summary>
-    public ButtonMappingProfile ButtonsFor(JoyCon2Handedness handedness) => (Mode, handedness) switch
+    /// <summary>
+    /// The buttons in effect for that side: the current mode's profile, and in game mode the paired
+    /// layout when both Joy-Cons are connected.
+    /// </summary>
+    public ButtonMappingProfile ButtonsFor(JoyCon2Handedness handedness, bool paired = false) => (Mode, handedness, paired) switch
     {
-        (InputMode.Game, JoyCon2Handedness.Right) => GameRightButtons,
-        (InputMode.Game, _) => GameLeftButtons,
-        (_, JoyCon2Handedness.Right) => RightButtons,
+        (InputMode.Game, JoyCon2Handedness.Right, true) => GamePairRightButtons,
+        (InputMode.Game, _, true) => GamePairLeftButtons,
+        (InputMode.Game, JoyCon2Handedness.Right, _) => GameRightButtons,
+        (InputMode.Game, _, _) => GameLeftButtons,
+        (_, JoyCon2Handedness.Right, _) => RightButtons,
         _ => LeftButtons,
     };
 

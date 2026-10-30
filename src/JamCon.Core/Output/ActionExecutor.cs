@@ -14,8 +14,17 @@ namespace JamCon.Core.Output;
 public sealed class ActionExecutor
 {
     private readonly SyntheticOutputCoordinator _coordinator;
+    private readonly Action<ButtonAction>? _engineAction;
 
-    public ActionExecutor(Action<SyntheticOutputEvent> post) => _coordinator = new SyntheticOutputCoordinator(post);
+    /// <param name="engineAction">
+    /// Runs the actions that change JamCon itself rather than sending input: switching modes and
+    /// levelling the view. Called once per press.
+    /// </param>
+    public ActionExecutor(Action<SyntheticOutputEvent> post, Action<ButtonAction>? engineAction = null)
+    {
+        _coordinator = new SyntheticOutputCoordinator(post);
+        _engineAction = engineAction;
+    }
 
     public SyntheticOutputCoordinator Coordinator => _coordinator;
 
@@ -41,6 +50,9 @@ public sealed class ActionExecutor
             case RepeatKeyAction repeat when isPressed:
                 _coordinator.Tap(SyntheticOutput.Key(repeat.Combo), owner);
                 break;
+            case ToggleModeAction or LevelViewAction when isPressed:
+                _engineAction?.Invoke(action);
+                break;
 
             // None, and the gyro modes, which the engine's gyro routing handles.
         }
@@ -64,6 +76,9 @@ public sealed class ActionExecutor
                 break;
             case SystemShortcutAction system:
                 PerformSystemAction(system.Action, owner);
+                break;
+            case ToggleModeAction or LevelViewAction:
+                _engineAction?.Invoke(action);
                 break;
         }
     }

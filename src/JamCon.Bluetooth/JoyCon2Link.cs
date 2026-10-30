@@ -125,7 +125,17 @@ public sealed class JoyCon2Link : IAsyncDisposable
     private bool _wakeProbation;
     private bool _sleepRequested;
 
-    public JoyCon2Link(Action<string> log) => _log = log;
+    /// <param name="side">
+    /// The hand this link serves. Two links, one per side, run side by side for a pair; each ignores
+    /// the other side's controllers.
+    /// </param>
+    public JoyCon2Link(Action<string> log, JoyCon2Handedness side)
+    {
+        _log = log;
+        Side = side;
+    }
+
+    public JoyCon2Handedness Side { get; }
 
     /// <summary>
     /// Disconnect after this long without use (see <see cref="ActivityDetector"/>) so the controller
@@ -254,7 +264,7 @@ public sealed class JoyCon2Link : IAsyncDisposable
                         ? "Asleep to save battery. To wake it, hold SYNC until the lights chase."
                         : known is { } k
                             ? $"Waiting for {k.DisplayName}. If it doesn't reconnect, hold SYNC until the lights chase."
-                            : "Hold SYNC on a Joy-Con 2 until its lights chase.");
+                            : $"Hold SYNC on a {JoyCon2Advertisement.DisplayName(Side)} until its lights chase.");
 
                     // While asleep: no direct attempts, which could reconnect a link Windows has not yet
                     // torn down, and no wake signals until the controller has had time to settle.
@@ -379,11 +389,12 @@ public sealed class JoyCon2Link : IAsyncDisposable
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         // Only a controller in SYNC mode parses as a Joy-Con 2 here, and holding SYNC is a deliberate
-        // request to connect, so any one is accepted, not just the remembered one. That is how a
-        // second Joy-Con takes over: it becomes the remembered controller once it connects.
+        // request to connect, so any one of this link's side is accepted, not just the remembered one.
+        // That is how a replacement controller takes over: it becomes the remembered one once it connects.
         scanner.Discovered += d =>
         {
             if (DateTimeOffset.Now < ignoreBefore) return;
+            if (d.Identity.Handedness != Side) return; // the other side's link takes it
             var other = known is { } k && d.BluetoothAddress != k.Address
                 ? $" Switching from {k.DisplayName} {Format(k.Address)}."
                 : "";

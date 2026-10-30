@@ -29,7 +29,7 @@ internal sealed class AppSettingsFile
     private readonly string _path;
     private readonly Action<string> _log;
     private readonly object _gate = new();
-    private KnownJoyCon2? _controller;
+    private readonly Dictionary<JoyCon2Handedness, KnownJoyCon2> _controllers = [];
     private InputSettings _input;
     private int _idleSleepMinutes = DefaultIdleSleepMinutes;
     private bool _smoothMotion = true;
@@ -40,7 +40,7 @@ internal sealed class AppSettingsFile
     {
         _path = path;
         _log = log;
-        (_controller, _input) = Load();
+        _input = Load();
     }
 
     /// <summary>Disconnect an unused controller after this many minutes so it can sleep. 0 disables.</summary>
@@ -79,11 +79,17 @@ internal sealed class AppSettingsFile
         }
     }
 
-    public KnownJoyCon2? Controller
+    /// <summary>The remembered controller for one hand, if any. A pair is remembered as one of each.</summary>
+    public KnownJoyCon2? ControllerFor(JoyCon2Handedness side)
+    {
+        lock (_gate) return _controllers.TryGetValue(side, out var c) ? c : null;
+    }
+
+    public bool HasControllers
     {
         get
         {
-            lock (_gate) return _controller;
+            lock (_gate) return _controllers.Count > 0;
         }
     }
 
@@ -99,8 +105,8 @@ internal sealed class AppSettingsFile
     {
         lock (_gate)
         {
-            if (_controller == controller) return;
-            _controller = controller;
+            if (_controllers.TryGetValue(controller.Handedness, out var current) && current == controller) return;
+            _controllers[controller.Handedness] = controller;
             Save();
         }
 
@@ -111,11 +117,11 @@ internal sealed class AppSettingsFile
     {
         lock (_gate)
         {
-            _controller = null;
+            _controllers.Clear();
             Save();
         }
 
-        _log("Forgot the remembered controller.");
+        _log("Forgot the remembered controllers.");
     }
 
     public void SaveInput(InputSettings input)
@@ -127,9 +133,9 @@ internal sealed class AppSettingsFile
         }
     }
 
-    private (KnownJoyCon2?, InputSettings) Load()
+    private InputSettings Load()
     {
-        if (!File.Exists(_path)) return (null, InputSettings.Default);
+        if (!File.Exists(_path)) return InputSettings.Default;
 
         JsonDocument document;
         try
@@ -140,7 +146,7 @@ internal sealed class AppSettingsFile
         {
             // A corrupt file should cost the user one SYNC press, not a crash on startup.
             _log($"Ignoring unreadable settings file {_path}: {ex.Message}");
-            return (null, InputSettings.Default);
+            return InputSettings.Default;
         }
 
         using (document)
@@ -156,16 +162,34 @@ internal sealed class AppSettingsFile
                 _smoothMotion = smooth.GetBoolean();
             }
 
-            return (LoadController(root), LoadInput(root));
+            LoadControllers(root);
+            return LoadInput(root);
         }
     }
 
-    private KnownJoyCon2? LoadController(JsonElement root)
+    /// <summary>Reads <c>Controllers</c>, or the single <c>ControllerAddress</c> that files written before pairs had.</summary>
+    private void LoadControllers(JsonElement root)
+    {
+        if (root.TryGetProperty("Controllers", out var list) && list.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in list.EnumerateArray())
+            {
+                if (LoadController(entry, "Address", "Handedness") is { } c) _controllers[c.Handedness] = c;
+            }
+        }
+        else if (LoadController(root, "ControllerAddress", "ControllerHandedness") is { } legacy)
+        {
+            _controllers[legacy.Handedness] = legacy;
+        }
+    }
+
+    private KnownJoyCon2? LoadController(JsonElement element, string addressKey, string sideKey)
     {
         try
         {
-            if (!root.TryGetProperty("ControllerAddress", out var address) || address.ValueKind != JsonValueKind.String
-                || !root.TryGetProperty("ControllerHandedness", out var side)
+            if (element.ValueKind != JsonValueKind.Object
+                || !element.TryGetProperty(addressKey, out var address) || address.ValueKind != JsonValueKind.String
+                || !element.TryGetProperty(sideKey, out var side)
                 || !Enum.TryParse<JoyCon2Handedness>(side.GetString(), out var handedness))
             {
                 return null;
@@ -198,8 +222,10 @@ internal sealed class AppSettingsFile
     {
         var file = new SettingsFileContents
         {
-            ControllerAddress = _controller is { } c ? JoyCon2Link.Format(c.Address) : null,
-            ControllerHandedness = _controller?.Handedness.ToString(),
+            Controllers = _controllers.Values
+                .OrderBy(c => c.Handedness)
+                .Select(c => new RememberedController(JoyCon2Link.Format(c.Address), c.Handedness.ToString()))
+                .ToList(),
             Input = InputNode(_input),
             IdleSleepMinutes = _idleSleepMinutes,
             SmoothMotion = _smoothMotion,
@@ -220,7 +246,8 @@ internal sealed class AppSettingsFile
 
     private static readonly string[] SavedOnlyWhenChanged =
         [nameof(InputSettings.RightButtons), nameof(InputSettings.LeftButtons),
-         nameof(InputSettings.GameRightButtons), nameof(InputSettings.GameLeftButtons), nameof(InputSettings.RadialMenu)];
+         nameof(InputSettings.GameRightButtons), nameof(InputSettings.GameLeftButtons),
+         nameof(InputSettings.GamePairRightButtons), nameof(InputSettings.GamePairLeftButtons), nameof(InputSettings.RadialMenu)];
 
     private static JsonNode InputNode(InputSettings input)
     {
@@ -234,10 +261,11 @@ internal sealed class AppSettingsFile
         return node;
     }
 
+    private sealed record RememberedController(string Address, string Handedness);
+
     private sealed class SettingsFileContents
     {
-        public string? ControllerAddress { get; set; }
-        public string? ControllerHandedness { get; set; }
+        public List<RememberedController> Controllers { get; set; } = [];
         public int IdleSleepMinutes { get; set; } = DefaultIdleSleepMinutes;
         public bool SmoothMotion { get; set; } = true;
         public JsonNode? Input { get; set; }

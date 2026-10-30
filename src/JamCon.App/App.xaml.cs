@@ -4,6 +4,7 @@ using JamCon.App.Services;
 using JamCon.App.Tray;
 using JamCon.Bluetooth;
 using JamCon.Core.Engine;
+using JamCon.Core.Protocol;
 using JamCon.Core.Output;
 using JamCon.Output;
 using Microsoft.Win32;
@@ -31,9 +32,8 @@ public partial class App : Application
     private RadialMenuOverlay? _radialOverlay;
     private ModeToast? _modeToast;
     private EngineHost? _engine;
-    private JoyCon2Link? _link;
+    private JoyCon2Link[] _links = [];
     private TrayController? _tray;
-    private string? _streamingDeviceId;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -106,40 +106,51 @@ public partial class App : Application
         _engine.Engine.ModeToggleRequested += ToggleMode;
         _log.Write($"Mode: {_input.Snapshot().Mode}.");
 
-        _link = new JoyCon2Link(_log.Write)
-        {
-            IdleTimeout = _settingsFile.IdleSleepMinutes > 0 ? TimeSpan.FromMinutes(_settingsFile.IdleSleepMinutes) : null,
-        };
+        // One link per hand, so a pair connects as two independent links and either can come and go.
+        _links = [CreateLink(JoyCon2Handedness.Right, _engine), CreateLink(JoyCon2Handedness.Left, _engine)];
         _log.Write(_settingsFile.IdleSleepMinutes > 0
             ? $"Idle sleep after {_settingsFile.IdleSleepMinutes} min without use."
             : "Idle sleep is off.");
-        _link.ControllerConnected += _settingsFile.Remember;
-        // The link guarantees StreamStarted precedes the stream's first frame and StreamStopped follows
-        // its last, so queue order alone keeps the engine's view of the device consistent.
-        _link.StreamStarted += (controller, calibration) =>
-        {
-            var id = JoyCon2Link.Format(controller.Address);
-            Volatile.Write(ref _streamingDeviceId, id);
-            _engine.Post(engine => engine.DeviceConnected(id, controller.Handedness, calibration));
-        };
-        _link.StreamStopped += (controller, _) =>
-        {
-            var id = JoyCon2Link.Format(controller.Address);
-            _engine.Post(engine => engine.DeviceDisconnected(id));
-        };
-        _link.FrameReceived += frame =>
-        {
-            if (frame.Report is not { } report || Volatile.Read(ref _streamingDeviceId) is not { } id) return;
-            _engine.Post(engine => engine.ProcessFrame(id, report, frame.TimestampSeconds));
-        };
 
-        _tray = new TrayController(_link, _log, _settingsFile, _input, _engine, _pacedOutput);
+        _tray = new TrayController(_links, _log, _settingsFile, _input, _engine, _pacedOutput);
         if (e.Args.Contains("--show-status")) _tray.ShowStatusWindow(); // dev aids: the same paths as the tray
         if (e.Args.Contains("--show-settings")) _tray.ShowSettingsWindow();
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
         _log.Write($"Mouse control is {(_input.Snapshot().IsEnabled ? "on" : "off")}. Settings: {AppPaths.SettingsFile}");
-        _link.Start(_settingsFile.Controller);
+        foreach (var link in _links) link.Start(_settingsFile.ControllerFor(link.Side));
+    }
+
+    private JoyCon2Link CreateLink(JoyCon2Handedness side, EngineHost engine)
+    {
+        var prefix = side == JoyCon2Handedness.Right ? "R" : "L";
+        var link = new JoyCon2Link(m => _log!.Write($"{prefix}: {m}"), side)
+        {
+            IdleTimeout = _settingsFile!.IdleSleepMinutes > 0 ? TimeSpan.FromMinutes(_settingsFile.IdleSleepMinutes) : null,
+        };
+        link.ControllerConnected += _settingsFile.Remember;
+
+        // The link guarantees StreamStarted precedes the stream's first frame and StreamStopped follows
+        // its last, so queue order alone keeps the engine's view of the device consistent.
+        string? streamingDeviceId = null;
+        link.StreamStarted += (controller, calibration) =>
+        {
+            var id = JoyCon2Link.Format(controller.Address);
+            Volatile.Write(ref streamingDeviceId, id);
+            engine.Post(e => e.DeviceConnected(id, controller.Handedness, calibration));
+        };
+        link.StreamStopped += (controller, _) =>
+        {
+            var id = JoyCon2Link.Format(controller.Address);
+            engine.Post(e => e.DeviceDisconnected(id));
+        };
+        link.FrameReceived += frame =>
+        {
+            if (frame.Report is not { } report || Volatile.Read(ref streamingDeviceId) is not { } id) return;
+            engine.Post(e => e.ProcessFrame(id, report, frame.TimestampSeconds));
+        };
+
+        return link;
     }
 
     /// <summary>
@@ -193,7 +204,8 @@ public partial class App : Application
     private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
     {
         _log?.Write($"Power event: {e.Mode}.");
-        if (e.Mode == PowerModes.Resume) _link?.RequestReconnect("PC resumed from sleep");
+        if (e.Mode != PowerModes.Resume) return;
+        foreach (var link in _links) link.RequestReconnect("PC resumed from sleep");
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -202,7 +214,7 @@ public partial class App : Application
         _tray?.Dispose();
 
         // Bounded: never hang exit on a WinRT call that will not return.
-        _link?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(5));
+        Task.WaitAll(_links.Select(l => l.DisposeAsync().AsTask()).ToArray(), TimeSpan.FromSeconds(5));
 
         // Releases every key and button JamCon still holds, then stops the engine thread.
         _engine?.Dispose();

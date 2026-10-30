@@ -151,6 +151,47 @@ public sealed class ButtonMappingProfile
         return new ButtonMappingProfile(mappings);
     }
 
+    /// <summary>
+    /// Game mode with both Joy-Cons, laid out like a Switch 2 game with motion controls (Splatoon):
+    /// the left stick walks, the right Joy-Con's gyro aims and its stick turns, Y levels the view.
+    /// </summary>
+    /// <remarks>
+    /// The side-rail buttons are left unmapped: they sit against the palms in this grip. HOME is
+    /// unmapped as everywhere in game mode.
+    /// </remarks>
+    public static ButtonMappingProfile GamePairDefaultFor(JoyCon2Handedness handedness)
+    {
+        ButtonActions Key(ushort virtualKey) => new(ButtonAction.Key(virtualKey));
+
+        var mappings = handedness == JoyCon2Handedness.Right
+            ? new Dictionary<JoyCon2Button, ButtonActions>
+            {
+                [JoyCon2Button.ZR] = new(ButtonAction.Click(MouseButton.Left)),
+                [JoyCon2Button.R] = new(ButtonAction.Click(MouseButton.Right)),
+                [JoyCon2Button.B] = Key(VirtualKeys.Space),
+                [JoyCon2Button.A] = Key(VirtualKeys.E),
+                [JoyCon2Button.X] = Key(VirtualKeys.R),
+                [JoyCon2Button.Y] = new(ButtonAction.LevelView),
+                [JoyCon2Button.StickClick] = Key(VirtualKeys.V),
+                [JoyCon2Button.Plus] = Key(VirtualKeys.Escape),
+                [JoyCon2Button.C] = SwitchMode,
+            }
+            : new Dictionary<JoyCon2Button, ButtonActions>
+            {
+                [JoyCon2Button.ZL] = Key(VirtualKeys.LeftControl),
+                [JoyCon2Button.L] = Key(VirtualKeys.Q),
+                [JoyCon2Button.StickClick] = Key(VirtualKeys.LeftShift),
+                [JoyCon2Button.DpadUp] = Key(VirtualKeys.Digit1),
+                [JoyCon2Button.DpadRight] = Key(VirtualKeys.Digit2),
+                [JoyCon2Button.DpadDown] = Key(VirtualKeys.Digit3),
+                [JoyCon2Button.DpadLeft] = Key(VirtualKeys.Digit4),
+                [JoyCon2Button.Minus] = Key(VirtualKeys.Tab),
+                [JoyCon2Button.Capture] = SwitchMode,
+            };
+
+        return new ButtonMappingProfile(mappings);
+    }
+
     /// <summary>Hold to switch between desktop and game mode; a tap does nothing.</summary>
     private static readonly ButtonActions SwitchMode = new(ButtonAction.None, ButtonAction.ToggleMode);
 

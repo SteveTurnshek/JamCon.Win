@@ -47,7 +47,7 @@ public sealed class InputEngine
         _holdScheduler = holdScheduler;
         _settings = settings;
         _radialMenu = radialMenu ?? NullRadialMenuPresenter.Instance;
-        _executor = new ActionExecutor(output.Post);
+        _executor = new ActionExecutor(output.Post, RunEngineAction);
     }
 
     /// <summary>Diagnostics: the gyro processor for a device, if connected.</summary>
@@ -64,6 +64,56 @@ public sealed class InputEngine
     /// <see cref="InputSettings.Mode"/>, and the engine releases everything when it sees the change.
     /// </summary>
     public event Action? ModeToggleRequested;
+
+    /// <summary>
+    /// Net vertical look motion sent since game mode began or the view was last levelled, in mouse
+    /// counts. Levelling sends it back.
+    /// </summary>
+    private double _pitchCounts;
+
+    private void RunEngineAction(ButtonAction action)
+    {
+        switch (action)
+        {
+            case ToggleModeAction:
+                ModeToggleRequested?.Invoke();
+                break;
+            case LevelViewAction:
+                if (_pitchCounts != 0) _output.Look(0, -_pitchCounts);
+                _pitchCounts = 0;
+                break;
+        }
+    }
+
+    private void Look(double dx, double dy)
+    {
+        _pitchCounts += dy;
+        _output.Look(dx, dy);
+    }
+
+    /// <summary>Both a left and a right Joy-Con are connected: they act as one controller.</summary>
+    private bool IsPaired()
+    {
+        bool left = false, right = false;
+        foreach (var d in _devices.Values)
+        {
+            if (!d.Connected) continue;
+            if (d.Handedness == JoyCon2Handedness.Right) right = true;
+            else left = true;
+        }
+
+        return left && right;
+    }
+
+    private DeviceState? Partner(DeviceState device)
+    {
+        foreach (var d in _devices.Values)
+        {
+            if (d.Connected && d.Handedness != device.Handedness) return d;
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// A controller connected, or reconnected. Starts it from a clean slate and anchors its stick on
@@ -87,12 +137,16 @@ public sealed class InputEngine
         device.RequiresNeutralAfterReconnect = false;
         if (factoryCalibration is { } calibration) device.Calibration.ApplyHardwareCalibration(calibration);
         device.Cadence.Reset();
+        device.LastFrameTime = null;
+        device.Connected = true;
     }
 
     /// <summary>The link dropped. Releases everything the controller held.</summary>
     public void DeviceDisconnected(string deviceId)
     {
-        if (_devices.TryGetValue(deviceId, out var device)) ResetTransientState(device);
+        if (!_devices.TryGetValue(deviceId, out var device)) return;
+        ResetTransientState(device);
+        device.Connected = false;
     }
 
     /// <summary>
@@ -136,6 +190,8 @@ public sealed class InputEngine
         if (!_devices.TryGetValue(deviceId, out var device)) return;
 
         var motionSampleRate = device.Cadence.Record(timestamp);
+        var dt = device.LastFrameTime is { } previous ? Math.Clamp(timestamp - previous, 0, 0.05) : 0;
+        device.LastFrameTime = timestamp;
 
         // One zero-filled report is normal while the IMU starts; upstream drops it whole.
         if (report.Imu.IsZeroFilled) return;
@@ -149,10 +205,15 @@ public sealed class InputEngine
             // would otherwise be stuck down. Buttons still held re-prime and do not fire again.
             ResetTransientState(device, resetGyro: false);
             device.Mode = s.Mode;
+            _pitchCounts = 0; // whatever the view is now counts as level
         }
 
         var game = s.Mode == InputMode.Game;
-        var profile = s.ButtonsFor(device.Handedness);
+        var paired = IsPaired();
+        var profile = s.ButtonsFor(device.Handedness, paired);
+
+        // A pair aims with the right Joy-Con, as a Switch 2 game does; the left one's gyro is ignored.
+        var aims = !paired || device.Handedness == JoyCon2Handedness.Right;
         var cursorEnabled = s.CursorControlEnabled;
 
         // Bounded neutral correction around the factory/connection anchor.
@@ -174,10 +235,14 @@ public sealed class InputEngine
         var gyro = s.ActiveGyro with { ExpectedSampleRate = motionSampleRate };
         var scale = GyroSettings.EffectiveScale(gyro.GyroScale, GyroConstants.DegreesPerSecondPerCount);
         var (dx, dy) = device.Gyro.Process(axes.Pitch, axes.Yaw, axes.Roll, timestamp, gyro, scale);
-        RouteGyroMovement(device, dx, dy, cursorEnabled, profile.HasDragMapping, game);
+        RouteGyroMovement(device, paired ? Partner(device) : null, dx, dy, cursorEnabled, profile.HasDragMapping, game, aims, paired);
 
         if (!cursorEnabled || !device.Calibration.IsCalibrated) return;
-        if (game)
+        if (game && paired && device.Handedness == JoyCon2Handedness.Right)
+        {
+            ProcessStickTurn(StickReader.Normalized(stick, device.Calibration), s, dt);
+        }
+        else if (game)
         {
             if (s.GameStickMovement) ProcessStickMovement(device, StickReader.Normalized(stick, device.Calibration));
         }
@@ -222,26 +287,34 @@ public sealed class InputEngine
 
     private enum GyroMode { None, Normal, Drag, Scroll, RadialMenu }
 
-    private static GyroMode CurrentGyroMode(DeviceState device, bool hasDragMapping)
+    /// <summary>
+    /// What this device's gyro does now. In a pair, a clutch held on either Joy-Con applies to the
+    /// aiming one, so the left hand's drag or scroll button still works.
+    /// </summary>
+    private GyroMode CurrentGyroMode(DeviceState device, DeviceState? partner, bool hasDragMapping, bool aims, bool paired)
     {
-        if (device.RadialMenuButtonHeld) return GyroMode.RadialMenu;
-        if (device.ScrollButtonHeld) return GyroMode.Scroll;
-        if (device.DragButtonHeld) return GyroMode.Drag;
+        // The menu follows its opener's gyro, except in a pair, where the aiming hand steers it.
+        var steersMenu = _radialConfig is not null && (paired ? aims : _radialOwner == device.Id);
+        if (steersMenu) return GyroMode.RadialMenu;
+        if (!aims || device.RadialMenuButtonHeld) return GyroMode.None;
+        if (device.ScrollButtonHeld || partner is { ScrollButtonHeld: true }) return GyroMode.Scroll;
+        if (device.DragButtonHeld || partner is { DragButtonHeld: true }) return GyroMode.Drag;
         return hasDragMapping ? GyroMode.None : GyroMode.Normal;
     }
 
-    private void RouteGyroMovement(DeviceState device, double dx, double dy, bool cursorEnabled, bool hasDragMapping, bool game)
+    private void RouteGyroMovement(
+        DeviceState device, DeviceState? partner, double dx, double dy, bool cursorEnabled, bool hasDragMapping, bool game, bool aims, bool paired)
     {
-        switch (CurrentGyroMode(device, hasDragMapping))
+        switch (CurrentGyroMode(device, partner, hasDragMapping, aims, paired))
         {
             case GyroMode.Normal or GyroMode.Drag when cursorEnabled:
-                if (game) _output.Look(dx, dy);
+                if (game) Look(dx, dy);
                 else _output.MoveCursor(dx, dy);
                 break;
             case GyroMode.Scroll when cursorEnabled:
                 _output.Scroll(dx, dy);
                 break;
-            case GyroMode.RadialMenu when _radialOwner == device.Id && _radialConfig is { } config:
+            case GyroMode.RadialMenu when _radialConfig is { } config:
                 // Gyro steers the menu's dot instead of the cursor, which holds still meanwhile.
                 var scale = Math.Max(0.1, config.RadialMovementScale);
                 var (x, y, selection) = RadialMenuGeometry.Resolve(_radialX + dx * scale, _radialY + dy * scale, config);
@@ -252,6 +325,27 @@ public sealed class InputEngine
 
             // None: a drag clutch is mapped but not held, so gyro motion does nothing.
         }
+    }
+
+    /// <summary>Below this deflection the right stick does not turn, so a resting stick never drifts the view.</summary>
+    internal const double StickTurnDeadzone = 0.15;
+
+    /// <summary>
+    /// A pair in game mode: the right stick turns left and right, as in Splatoon's motion controls,
+    /// for turns too big to make with the wrist. Up and down do nothing. The speed is in the same
+    /// units as turning the controller, so a full push turns the view as a
+    /// <see cref="InputSettings.GameStickTurnSpeed"/> °/s turn of the Joy-Con would.
+    /// </summary>
+    private void ProcessStickTurn((byte X, byte Y) position, InputSettings s, double dt)
+    {
+        var x = (position.X - 128.0) / 127.0;
+        var magnitude = Math.Abs(x);
+        if (magnitude <= StickTurnDeadzone || dt <= 0) return;
+
+        var t = Math.Min(1.0, (magnitude - StickTurnDeadzone) / (1.0 - StickTurnDeadzone));
+        var degreesPerSecond = Math.Sign(x) * t * t * s.GameStickTurnSpeed;
+        var countsPerDegree = s.GameGyro.Sensitivity * 0.1;
+        Look(degreesPerSecond * dt * countsPerDegree, 0);
     }
 
     /// <summary>Ported from beginRadialMenu. The first device to open the menu owns it until release.</summary>
@@ -497,9 +591,6 @@ public sealed class InputEngine
         held.Active = true;
         switch (action)
         {
-            case ToggleModeAction:
-                ModeToggleRequested?.Invoke();
-                break;
             case HoldToggleAction toggle:
                 _executor.Tap(toggle, owner);
                 break;
@@ -669,5 +760,7 @@ public sealed class InputEngine
         public bool RadialMenuButtonHeld { get; set; }
         public bool[] StickKeysHeld { get; } = new bool[4];
         public InputMode Mode { get; set; }
+        public bool Connected { get; set; }
+        public double? LastFrameTime { get; set; }
     }
 }
