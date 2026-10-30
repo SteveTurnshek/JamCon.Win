@@ -74,6 +74,23 @@ public sealed class GyroProcessor
     private (double X, double Y, double Z) _neutralSumSquares;
     private int _neutralCount;
     private double? _lastNeutralUpdate;
+    private (double X, double Y, double Z) _accelSum;
+    private (double X, double Y, double Z) _accelSumSquares;
+    private int _accelCount;
+
+    /// <summary>Accelerometer standard deviation, counts, below which the controller counts as set down.</summary>
+    internal const double RestingAccelStd = 3.0;
+
+    /// <summary>How long it must rest before a larger bias correction is trusted.</summary>
+    internal const double RestingDuration = 1.5;
+
+    private double AccelStd()
+    {
+        if (_accelCount == 0) return double.PositiveInfinity;
+        var inv = 1.0 / _accelCount;
+        double Axis(double sum, double squares) => Math.Sqrt(Math.Max(0, squares * inv - sum * inv * (sum * inv)));
+        return Math.Max(Axis(_accelSum.X, _accelSumSquares.X), Math.Max(Axis(_accelSum.Y, _accelSumSquares.Y), Axis(_accelSum.Z, _accelSumSquares.Z)));
+    }
 
     /// <summary>Smoothed angular speed, °/s.</summary>
     public double CurrentSpeed { get; private set; }
@@ -86,8 +103,13 @@ public sealed class GyroProcessor
     /// <param name="scale">
     /// Effective °/s per count, i.e. <see cref="GyroSettings.EffectiveScale"/>, not the user scale.
     /// </param>
+    /// <param name="accel">
+    /// Raw accelerometer counts, when available. They let auto-neutral tell a controller set down from
+    /// a slow deliberate turn, and so correct a larger bias error; see <see cref="UpdateAutoNeutral"/>.
+    /// </param>
     /// <returns>Cursor delta in pixels. Positive dx is right, positive dy is down.</returns>
-    public (double Dx, double Dy) Process(int rawX, int rawY, int rawZ, double timestamp, GyroSettings settings, double scale)
+    public (double Dx, double Dy) Process(
+        int rawX, int rawY, int rawZ, double timestamp, GyroSettings settings, double scale, (double X, double Y, double Z)? accel = null)
     {
         double x = rawX, y = rawY, z = rawZ;
 
@@ -140,7 +162,7 @@ public sealed class GyroProcessor
         UpdateBias(x, y, z, settings.BiasMotionThreshold);
         if (settings.AutoNeutralEnabled && timestampIsMonotonic)
         {
-            UpdateAutoNeutral(x, y, z, scale, timestamp);
+            UpdateAutoNeutral(x, y, z, scale, timestamp, accel);
         }
 
         // Bias-corrected °/s. Inverted for natural direction, as upstream does.
@@ -248,7 +270,7 @@ public sealed class GyroProcessor
     /// a deliberate constant-speed rotation is also low-variance, so once a bias exists the candidate
     /// must also sit within 0.2 °/s of it.
     /// </summary>
-    private void UpdateAutoNeutral(double rawX, double rawY, double rawZ, double scale, double timestamp)
+    private void UpdateAutoNeutral(double rawX, double rawY, double rawZ, double scale, double timestamp, (double X, double Y, double Z)? accel)
     {
         const double minDuration = 0.6;
         const int minSamples = 20;
@@ -277,6 +299,9 @@ public sealed class GyroProcessor
             _neutralAccumulator = (rawX, rawY, rawZ);
             _neutralSumSquares = (rawX * rawX, rawY * rawY, rawZ * rawZ);
             _neutralCount = 1;
+            _accelSum = (0, 0, 0);
+            _accelSumSquares = (0, 0, 0);
+            _accelCount = 0;
         }
         else
         {
@@ -286,6 +311,13 @@ public sealed class GyroProcessor
                 _neutralSumSquares.Y + rawY * rawY,
                 _neutralSumSquares.Z + rawZ * rawZ);
             _neutralCount++;
+        }
+
+        if (accel is { } a)
+        {
+            _accelSum = (_accelSum.X + a.X, _accelSum.Y + a.Y, _accelSum.Z + a.Z);
+            _accelSumSquares = (_accelSumSquares.X + a.X * a.X, _accelSumSquares.Y + a.Y * a.Y, _accelSumSquares.Z + a.Z * a.Z);
+            _accelCount++;
         }
 
         if (_neutralStart is not { } start
@@ -312,7 +344,19 @@ public sealed class GyroProcessor
             + (avgZ - _biasZ) * (avgZ - _biasZ)) * scale;
         var plausibleNeutral = _biasEstablished ? candidateShift <= 0.2 : candidateMagnitude <= maximumStartupBias;
 
-        if (stillnessPass && plausibleNeutral)
+        // Set down, the bias may be corrected by up to the established-residual limit, not just 0.2 °/s:
+        // an initial estimate learned in the hand can be off by a degree a second, which always-on
+        // game aiming shows as constant drift and the 0.2 °/s rule would never fix. Resting is told
+        // apart from a slow turn by the accelerometer: in a 5-minute capture it varied about 1 count
+        // (of ~4096 per g) on a table and 6–48 in the hand. It needs a longer window, 1.5 s.
+        var resting = _accelCount == _neutralCount && AccelStd() < RestingAccelStd;
+        var restingCorrection = _biasEstablished && resting && candidateShift <= maximumEstablishedResidual;
+        if (stillnessPass && !plausibleNeutral && restingCorrection && timestamp - start < RestingDuration)
+        {
+            return; // keep watching; accept once it has rested long enough
+        }
+
+        if (stillnessPass && (plausibleNeutral || restingCorrection))
         {
             _biasX = avgX;
             _biasY = avgY;
@@ -334,6 +378,9 @@ public sealed class GyroProcessor
         _neutralAccumulator = (0, 0, 0);
         _neutralSumSquares = (0, 0, 0);
         _neutralCount = 0;
+        _accelSum = (0, 0, 0);
+        _accelSumSquares = (0, 0, 0);
+        _accelCount = 0;
     }
 
     private double ComputeAdaptiveBeta(double speed, double baseBeta, double dt, AdaptiveSmoothingMode mode)

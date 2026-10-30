@@ -390,7 +390,8 @@ public sealed class InputEngine
         var axes = GyroRemapper.Remap(report.Imu.GyroX, report.Imu.GyroY, report.Imu.GyroZ, device.Handedness);
         var gyro = s.ActiveGyro with { ExpectedSampleRate = motionSampleRate };
         var scale = GyroSettings.EffectiveScale(gyro.GyroScale, GyroConstants.DegreesPerSecondPerCount);
-        var (dx, dy) = device.Gyro.Process(axes.Pitch, axes.Yaw, axes.Roll, timestamp, gyro, scale);
+        var imu = report.Imu;
+        var (dx, dy) = device.Gyro.Process(axes.Pitch, axes.Yaw, axes.Roll, timestamp, gyro, scale, (imu.AccelX, imu.AccelY, imu.AccelZ));
         if (s.Mode == InputMode.Controller)
         {
             ProcessControllerGyro(device, dx, dy, dt, s, aims && cursorEnabled);
