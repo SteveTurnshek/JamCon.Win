@@ -11,8 +11,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  # Only superseded PR runs are cancelled: a cancelled run on main emails "Run cancelled".
+  # Pull requests share a group per branch so a newer push cancels the older run. Pushes to main
+  # each get their own group (the run id): a shared group would still cancel a run waiting in the
+  # queue behind another, leaving a commit on main with no result.
+  group: ${{ github.event_name == 'pull_request' && format('ci-{0}', github.ref) || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
