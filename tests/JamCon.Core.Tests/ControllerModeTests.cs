@@ -191,3 +191,28 @@ public class ModeCycleTests
     public void WithoutTheDriverXboxModeIsSkipped() =>
         Assert.Equal(InputMode.Desktop, InputModes.Next(InputMode.Game, controllerAvailable: false));
 }
+
+public class ButtonLayoutsTests
+{
+    [Theory]
+    [InlineData(InputMode.Desktop, false)]
+    [InlineData(InputMode.Game, false)]
+    [InlineData(InputMode.Game, true)]
+    [InlineData(InputMode.Controller, false)]
+    [InlineData(InputMode.Controller, true)]
+    public void EachLayoutIsReplacedIndependently(InputMode mode, bool paired)
+    {
+        foreach (var side in new[] { JoyCon2Handedness.Right, JoyCon2Handedness.Left })
+        {
+            var edited = ButtonLayouts.Default(mode, side, paired).WithActions(JoyCon2Button.SL, new ButtonActions(ButtonAction.Key(VirtualKeys.F)));
+            var s = ButtonLayouts.With(InputSettings.Default, mode, side, paired, edited);
+
+            Assert.Same(edited, ButtonLayouts.Get(s, mode, side, paired));
+            Assert.Same(edited, (s with { Mode = mode }).ButtonsFor(side, paired));
+
+            // Nothing else changed.
+            var other = side == JoyCon2Handedness.Right ? JoyCon2Handedness.Left : JoyCon2Handedness.Right;
+            Assert.Same(ButtonLayouts.Get(InputSettings.Default, mode, other, paired), ButtonLayouts.Get(s, mode, other, paired));
+        }
+    }
+}

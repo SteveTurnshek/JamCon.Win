@@ -214,13 +214,13 @@ public sealed record RadialMenuAction : ButtonAction
 /// </summary>
 public sealed record HoldToggleAction(KeyCombo Combo) : ButtonAction
 {
-    public override string DisplayName => $"{Combo} on press and on release";
+    public override string DisplayName => $"{Combo} at start and end of hold";
 }
 
 /// <summary>Taps the key at once, then again every <paramref name="IntervalSeconds"/> while held.</summary>
 public sealed record RepeatKeyAction(KeyCombo Combo, double IntervalSeconds) : ButtonAction
 {
-    public override string DisplayName => $"{Combo}, every {IntervalSeconds:0.##} s while held";
+    public override string DisplayName => $"{Combo} every {IntervalSeconds:0.##} s";
 }
 
 /// <summary>
@@ -229,7 +229,7 @@ public sealed record RepeatKeyAction(KeyCombo Combo, double IntervalSeconds) : B
 /// </summary>
 public sealed record ToggleModeAction : ButtonAction
 {
-    public override string DisplayName => "Switch desktop/game mode";
+    public override string DisplayName => "Next mode";
 }
 
 /// <summary>

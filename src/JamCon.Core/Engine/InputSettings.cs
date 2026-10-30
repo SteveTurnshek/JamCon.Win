@@ -202,3 +202,31 @@ public static class InputModes
         _ => "Desktop mode",
     };
 }
+
+/// <summary>Reading and replacing any one of the button layouts, for the remapping editor.</summary>
+public static class ButtonLayouts
+{
+    /// <summary>Whether a mode has separate layouts for a pair. Desktop does not: each hand keeps its own.</summary>
+    public static bool HasPairLayouts(InputMode mode) => mode != InputMode.Desktop;
+
+    public static ButtonMappingProfile Get(InputSettings settings, InputMode mode, JoyCon2Handedness side, bool paired) =>
+        (settings with { Mode = mode }).ButtonsFor(side, paired && HasPairLayouts(mode));
+
+    public static ButtonMappingProfile Default(InputMode mode, JoyCon2Handedness side, bool paired) =>
+        Get(InputSettings.Default, mode, side, paired);
+
+    public static InputSettings With(InputSettings s, InputMode mode, JoyCon2Handedness side, bool paired, ButtonMappingProfile profile) =>
+        (mode, side == JoyCon2Handedness.Right, paired && HasPairLayouts(mode)) switch
+        {
+            (InputMode.Desktop, true, _) => s with { RightButtons = profile },
+            (InputMode.Desktop, false, _) => s with { LeftButtons = profile },
+            (InputMode.Game, true, false) => s with { GameRightButtons = profile },
+            (InputMode.Game, false, false) => s with { GameLeftButtons = profile },
+            (InputMode.Game, true, true) => s with { GamePairRightButtons = profile },
+            (InputMode.Game, false, true) => s with { GamePairLeftButtons = profile },
+            (_, true, false) => s with { ControllerRightButtons = profile },
+            (_, false, false) => s with { ControllerLeftButtons = profile },
+            (_, true, true) => s with { ControllerPairRightButtons = profile },
+            _ => s with { ControllerPairLeftButtons = profile },
+        };
+}

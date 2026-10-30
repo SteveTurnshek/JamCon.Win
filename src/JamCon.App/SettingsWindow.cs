@@ -155,6 +155,10 @@ internal sealed class SettingsWindow : Window
             "How much faster a full push scrolls than a light one.");
 
         Section(panel, "Buttons");
+        var edit = new Button { Content = "Edit buttons…", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+        edit.Click += (_, _) => OpenButtonEditor();
+        panel.Children.Add(edit);
+        panel.Children.Add(Hint("Every button's tap, hold and double-tap actions, for each mode, alone or in a pair."));
         Slider(panel, "Hold time", 0.1, 1.0, 0.05,
             () => _input.Snapshot().HoldThreshold,
             v => _input.Update(s => s with { HoldThreshold = v }),
@@ -206,7 +210,6 @@ internal sealed class SettingsWindow : Window
         buttons.Children.Add(folder);
         panel.Children.Add(buttons);
 
-        panel.Children.Add(Hint("Buttons can't be remapped here yet. For now, settings.json in the settings folder can be edited while JamCon is closed."));
 
         Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
 
@@ -221,6 +224,20 @@ internal sealed class SettingsWindow : Window
                        $"scroll {s.JoystickScrollSpeed:0.#}/{s.JoystickScrollAcceleration:0.0}; sleep {_file.IdleSleepMinutes} min; " +
                        $"smooth motion {_file.SmoothMotion}; start with Windows {StartupRegistration.IsEnabled}.");
         };
+    }
+
+    private ButtonEditorWindow? _buttonEditor;
+
+    public void OpenButtonEditor()
+    {
+        if (_buttonEditor is null)
+        {
+            _buttonEditor = new ButtonEditorWindow(_input) { Owner = this };
+            _buttonEditor.Closed += (_, _) => _buttonEditor = null;
+        }
+
+        _buttonEditor.Show();
+        _buttonEditor.Activate();
     }
 
     private static string SmoothingLabel(double level) => level switch

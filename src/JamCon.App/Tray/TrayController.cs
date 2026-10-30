@@ -255,6 +255,12 @@ internal sealed class TrayController : IDisposable
         }
     }
 
+    public void ShowButtonEditor()
+    {
+        ShowSettingsWindow();
+        _settingsWindow?.OpenButtonEditor();
+    }
+
     public void ShowStatusWindow()
     {
         try
