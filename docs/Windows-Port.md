@@ -191,9 +191,21 @@ SYNC and HOME both end a session, as above. Measured so far with the tray app (2
   went to sleep. So relaunch reconnects on its own only within roughly the 10–20 s Windows keeps
   an orphaned link; after that the controller needs waking.
 
-Still untested: range loss, Bluetooth off/on, PC sleep/wake, and — now the important one —
-whether a normal button press wakes a sleeping controller, or only SYNC does. Upstream says the
-controller "may not advertise again by itself" after the host sleeps.
+- **Waking a disconnected controller: SYNC, not ordinary buttons.** After the 35 s relaunch the
+  controller was asleep. Pressing ordinary buttons did not reconnect it (reported by Steve). The app
+  did see one advertisement from it, connected, and the link dropped within a second three times
+  running, the same pattern as the very first connection attempts before SYNC. Holding SYNC
+  connected in 2 s. Every fresh connection so far has followed SYNC. Unverified explanation: a
+  controller woken by an ordinary button tries to reconnect to its bonded host and expects an
+  encrypted link, which an unpaired connection cannot provide; in SYNC mode it accepts a fresh one.
+  Upstream similarly says to hold SYNC after the host sleeps.
+
+  The same test exposed a bug, since fixed: after failed direct attempts the link waited out a
+  30 s backoff without listening, so a SYNC press during it was ignored. Failures no longer pause
+  listening; a SYNC-mode advertisement (one carrying Nintendo data) is always tried at once, and
+  the log now records whether each advertisement was SYNC-mode or bare.
+
+Still untested: range loss, Bluetooth off/on, and PC sleep/wake.
 
 **Idle sleep.** After 10 minutes without use (`ActivityDetector`: a button, the stick pushed, or
 motion over 20 °/s), the link disconnects deliberately so the controller can power down, and enters

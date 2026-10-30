@@ -50,7 +50,8 @@ Original Joy-Con, Pro Controller, Sense, and G502X support existed upstream thro
 2. **Do not pair the Joy-Con in Windows Bluetooth settings.** JamCon connects to it directly;
    a Windows pairing stops it working. If you already added it there, remove it.
 3. Hold **SYNC** on the Joy-Con until its lights chase. The tray dot turns green when connected.
-   JamCon remembers the controller and reconnects to it on its own after that.
+   JamCon remembers the controller. Whenever it has disconnected (it slept, went out of range, or
+   JamCon restarted), hold SYNC again to reconnect: ordinary button presses do not bring it back.
 4. **Hold X and point the controller to move the cursor.** Release X and the cursor stays put,
    so a resting controller never drifts it.
 
@@ -78,7 +79,7 @@ The radial menu's default slices are the four arrow keys, as upstream. While it 
 holds still and a dot follows the controller instead.
 
 After 10 minutes without use, JamCon disconnects so the Joy-Con can sleep and save its battery.
-Press a button to wake it; if that doesn't bring it back, hold SYNC. Right-click the tray icon to
+Hold SYNC to wake it. Right-click the tray icon to
 put it to sleep sooner, turn **Mouse control** off (anything held is released at once), recalibrate
 the gyro, or open the log folder. Left-click it for a live status window.
 

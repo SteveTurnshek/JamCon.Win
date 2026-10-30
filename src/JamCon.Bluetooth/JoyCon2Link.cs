@@ -71,7 +71,12 @@ public sealed class JoyCon2Link : IAsyncDisposable
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan RadioPollInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan PairedConflictRecheck = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan MaxFailureBackoff = TimeSpan.FromSeconds(30);
+    /// <summary>
+    /// Longest wait before acting on another bare (non-SYNC) advertisement after a failed attempt.
+    /// Short, because the controller is awake when it advertises; but nonzero, so one that keeps
+    /// advertising without accepting a connection is not hammered into a firmware cooldown.
+    /// </summary>
+    private static readonly TimeSpan MaxBareAdvertisementBackoff = TimeSpan.FromSeconds(8);
 
     /// <summary>
     /// Service-discovery attempts per connection, about three seconds apart. Short, because the
@@ -218,6 +223,7 @@ public sealed class JoyCon2Link : IAsyncDisposable
     {
         var failures = 0;
         var lastDirectAttempt = DateTimeOffset.MinValue;
+        var bareNotBefore = DateTimeOffset.MinValue;
 
         while (!lifetime.IsCancellationRequested)
         {
@@ -242,10 +248,12 @@ public sealed class JoyCon2Link : IAsyncDisposable
                     var waiting = asleep
                         ? JoyCon2LinkState.Asleep
                         : HasDropped ? JoyCon2LinkState.Reconnecting : JoyCon2LinkState.Searching;
+                    // Every fresh connection so far has followed SYNC; a controller woken by an ordinary
+                    // button has accepted a link and then dropped it within a second (docs/Windows-Port.md).
                     SetState(waiting, asleep
-                        ? "Asleep to save battery. Press a button to wake it; if that doesn't work, hold SYNC."
+                        ? "Asleep to save battery. To wake it, hold SYNC until the lights chase."
                         : known is { } k
-                            ? $"Waiting for {k.DisplayName}. Press any button except HOME to wake it."
+                            ? $"Waiting for {k.DisplayName}. If it doesn't reconnect, hold SYNC until the lights chase."
                             : "Hold SYNC on a Joy-Con 2 until its lights chase.");
 
                     // While asleep: no direct attempts, which could reconnect a link Windows has not yet
@@ -255,6 +263,7 @@ public sealed class JoyCon2Link : IAsyncDisposable
                         lastDirectAttempt,
                         allowDirect: !asleep,
                         ignoreBefore: asleep ? asleepSince + SleepSettleTime : DateTimeOffset.MinValue,
+                        bareNotBefore,
                         ct);
                     if (target is null) continue;
                     if (target.Value.Via == ConnectVia.Direct) lastDirectAttempt = DateTimeOffset.Now;
@@ -270,11 +279,17 @@ public sealed class JoyCon2Link : IAsyncDisposable
                             break;
 
                         case OutcomeKind.Failed:
+                            // Keep listening rather than sleeping off a backoff: an advertising controller
+                            // is awake now and may not be later. Direct attempts are already limited to one
+                            // per DirectAttemptInterval; bare advertisements back off briefly; a SYNC-mode
+                            // advertisement is always tried at once, since someone just pressed SYNC.
                             failures++;
-                            var backoff = TimeSpan.FromSeconds(Math.Min(Math.Pow(2, failures), MaxFailureBackoff.TotalSeconds));
-                            _log($"Connection attempt failed ({failures} in a row); next attempt in {backoff.TotalSeconds:F0} s.");
-                            SetState(waiting, $"Couldn't connect; retrying in {backoff.TotalSeconds:F0} s.");
-                            await Task.Delay(backoff, ct);
+                            var backoff = TimeSpan.FromSeconds(Math.Min(Math.Pow(2, failures), MaxBareAdvertisementBackoff.TotalSeconds));
+                            bareNotBefore = DateTimeOffset.Now + backoff;
+                            _log($"Connection attempt failed ({failures} in a row). Still listening: SYNC is tried at once, " +
+                                 $"other advertisements after {backoff.TotalSeconds:F0} s.");
+                            SetState(waiting, "Couldn't connect. Hold SYNC until the lights chase.");
+                            await Task.Delay(TimeSpan.FromSeconds(1), ct);
                             break;
 
                         case OutcomeKind.Dropped:
@@ -352,7 +367,12 @@ public sealed class JoyCon2Link : IAsyncDisposable
     /// in a form the watcher reports. Returns null to let the loop re-check the radio and go again.
     /// </summary>
     private async Task<Target?> FindAsync(
-        KnownJoyCon2? known, DateTimeOffset lastDirectAttempt, bool allowDirect, DateTimeOffset ignoreBefore, CancellationToken ct)
+        KnownJoyCon2? known,
+        DateTimeOffset lastDirectAttempt,
+        bool allowDirect,
+        DateTimeOffset ignoreBefore,
+        DateTimeOffset bareNotBefore,
+        CancellationToken ct)
     {
         using var scanner = new JoyCon2Scanner { WatchAddress = known?.Address };
         var found = new TaskCompletionSource<(KnownJoyCon2 Controller, string Description)>(
@@ -365,17 +385,23 @@ public sealed class JoyCon2Link : IAsyncDisposable
             {
                 found.TrySetResult((
                     new KnownJoyCon2(d.BluetoothAddress, d.Identity.Handedness),
-                    $"Advertisement from {d.DisplayName} {Format(d.BluetoothAddress)} (rssi {d.SignalStrengthDbm} dBm)."));
+                    $"Advertisement with Nintendo data (SYNC mode) from {d.DisplayName} {Format(d.BluetoothAddress)} " +
+                    $"(rssi {d.SignalStrengthDbm} dBm)."));
             }
         };
 
         // A controller reconnecting to its last host may send a directed advertisement, which carries
         // no manufacturer data and so never parses as a Joy-Con 2. From the remembered address,
-        // any advertisement at all is a reason to try connecting.
-        scanner.WatchedAddressSeen += type =>
+        // any advertisement at all is a reason to try connecting. The log records which kind it was:
+        // that is what tells a SYNC press apart from an ordinary button waking the controller.
+        scanner.WatchedAddressSeen += (type, nintendoData) =>
         {
-            if (known is not { } k || DateTimeOffset.Now < ignoreBefore) return;
-            found.TrySetResult((k, $"{type} advertisement from {k.DisplayName} {Format(k.Address)}."));
+            var now = DateTimeOffset.Now;
+            if (known is not { } k || now < ignoreBefore) return;
+            if (!nintendoData && now < bareNotBefore) return;
+            found.TrySetResult((k, nintendoData
+                ? $"{type} advertisement with Nintendo data (SYNC mode) from {k.DisplayName} {Format(k.Address)}."
+                : $"{type} advertisement without Nintendo data (not SYNC) from {k.DisplayName} {Format(k.Address)}."));
         };
 
         try

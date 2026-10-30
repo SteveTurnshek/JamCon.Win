@@ -49,9 +49,10 @@ public sealed class JoyCon2Scanner : IDisposable
 
     /// <summary>
     /// Any advertisement at all from <see cref="WatchAddress"/>, including directed ones that carry
-    /// no manufacturer data and so never parse as a Joy-Con 2.
+    /// no manufacturer data and so never parse as a Joy-Con 2. The flag says whether it carried
+    /// Nintendo manufacturer data, which a controller in SYNC mode sends.
     /// </summary>
-    public event Action<BluetoothLEAdvertisementType>? WatchedAddressSeen;
+    public event Action<BluetoothLEAdvertisementType, bool>? WatchedAddressSeen;
 
     /// <summary>An address to dump in full whenever it advertises, e.g. a known controller.</summary>
     public ulong? WatchAddress { get; init; }
@@ -163,7 +164,12 @@ public sealed class JoyCon2Scanner : IDisposable
         }
 
         EmitDiagnostic(args, localName);
-        if (args.BluetoothAddress == WatchAddress) WatchedAddressSeen?.Invoke(args.AdvertisementType);
+        if (args.BluetoothAddress == WatchAddress)
+        {
+            WatchedAddressSeen?.Invoke(
+                args.AdvertisementType,
+                args.Advertisement.ManufacturerData.Any(s => IsNintendoCompanyId(s.CompanyId)));
+        }
 
         foreach (var section in args.Advertisement.ManufacturerData)
         {

@@ -156,7 +156,7 @@ internal sealed class TrayController : IDisposable
             JoyCon2LinkState.Reconnecting => $"Reconnecting to {name}…",
             JoyCon2LinkState.BluetoothOff => "Bluetooth is off",
             JoyCon2LinkState.PairedConflict => $"Remove {name} in Windows Bluetooth settings",
-            JoyCon2LinkState.Asleep => $"{name} is asleep; press a button to wake it",
+            JoyCon2LinkState.Asleep => $"{name} is asleep; hold SYNC to wake it",
             _ => "Stopped",
         };
     }
