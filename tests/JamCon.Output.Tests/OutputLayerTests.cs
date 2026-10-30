@@ -85,7 +85,7 @@ public class KeyboardInputTests
 
         var downScans = down.Select(i => i.Union.Keyboard.ScanCode).ToArray();
         var upScans = up.Select(i => i.Union.Keyboard.ScanCode).ToArray();
-        Assert.Equal(downScans.Reverse(), upScans);
+        Assert.Equal(Enumerable.Reverse(downScans), upScans);
     }
 
     /// <summary>Ordinary keys use scan codes, which games read; this is the plan's requirement.</summary>
