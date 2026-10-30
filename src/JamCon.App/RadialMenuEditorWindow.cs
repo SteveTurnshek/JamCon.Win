@@ -222,6 +222,9 @@ internal sealed class RadialMenuEditorWindow : Window
         header.Children.Add(value);
         header.Children.Add(new TextBlock { Text = label });
         var slider = new Slider { Minimum = min, Maximum = max, SmallChange = step, TickFrequency = step, IsSnapToTickEnabled = true, Margin = new Thickness(0, 4, 0, 0) };
+        var reset = SliderReset.For(slider, read(RadialMenuConfiguration.Default), format);
+        DockPanel.SetDock(reset, Dock.Right);
+        header.Children.Insert(0, reset);
         slider.ValueChanged += (_, e) =>
         {
             value.Text = format(e.NewValue);

@@ -49,11 +49,11 @@ internal sealed class SettingsWindow : Window
         panel.Children.Add(_mode);
 
         Section(panel, "Desktop", "Hold X and point the controller to move the cursor.");
-        Slider(panel, "Cursor speed", 5, 150, 1,
+        Slider(panel, "Cursor speed", 5, 150, 1, GyroSettings.Default.Sensitivity,
             () => _input.Snapshot().Gyro.Sensitivity,
             v => _input.Update(s => s with { Gyro = s.Gyro with { Sensitivity = v } }),
             v => $"{v:0}");
-        Slider(panel, "Smoothing", 0, SmoothingLevel.Max, 1,
+        Slider(panel, "Smoothing", 0, SmoothingLevel.Max, 1, SmoothingLevel.Of(GyroSettings.Default),
             () => SmoothingLevel.Of(_input.Snapshot().Gyro),
             v => _input.Update(s => s with { Gyro = SmoothingLevel.Apply(s.Gyro, (int)v) }),
             SmoothingLabel,
@@ -62,21 +62,21 @@ internal sealed class SettingsWindow : Window
         var advanced = new StackPanel();
         panel.Children.Add(new Expander { Header = "Advanced cursor tuning", Content = advanced, Margin = new Thickness(0, 12, 0, 0) });
         advanced.Children.Add(Hint("Upstream JamCon's finer controls, for desktop mode. Game modes stay linear on purpose."));
-        Slider(advanced, "Acceleration: maximum boost", 1, 40, 0.5,
+        Slider(advanced, "Acceleration: maximum boost", 1, 40, 0.5, GyroSettings.Default.SensitivityCap,
             () => _input.Snapshot().Gyro.SensitivityCap,
             v => _input.Update(s => s with { Gyro = s.Gyro with { SensitivityCap = v } }),
             v => v <= 1 ? "Off" : $"{v:0.#}×",
             "How much faster a fast flick moves the cursor than a slow, precise movement.");
-        Slider(advanced, "Acceleration: full boost at", 30, 500, 5,
+        Slider(advanced, "Acceleration: full boost at", 30, 500, 5, GyroSettings.Default.RampSpeed,
             () => _input.Snapshot().Gyro.RampSpeed,
             v => _input.Update(s => s with { Gyro = s.Gyro with { RampSpeed = v } }),
             v => $"{v:0} °/s");
-        Slider(advanced, "Acceleration: curve shape", 0.3, 3, 0.05,
+        Slider(advanced, "Acceleration: curve shape", 0.3, 3, 0.05, GyroSettings.Default.CurveExponent,
             () => _input.Snapshot().Gyro.CurveExponent,
             v => _input.Update(s => s with { Gyro = s.Gyro with { CurveExponent = v } }),
             v => $"{v:0.00}",
             "Below 1 the boost comes in early, 1 is even, above 1 it waits for faster motion.");
-        Slider(advanced, "Smoothing reactivity", 0, 2, 0.05,
+        Slider(advanced, "Smoothing reactivity", 0, 2, 0.05, GyroSettings.Default.Beta,
             () => _input.Snapshot().Gyro.Beta,
             v => _input.Update(s => s with { Gyro = s.Gyro with { Beta = v } }),
             v => $"{v:0.00}",
@@ -93,19 +93,19 @@ internal sealed class SettingsWindow : Window
             v => _input.Update(s => s with { Gyro = s.Gyro with { AutoTuneSampleRate = v } }));
 
         Section(panel, "Mouse & keyboard game", "Gyro always aims, like moving a mouse. The stick walks with W A S D. With both Joy-Cons, play as in a Switch 2 motion-controls game: the right aims, the left walks.");
-        Slider(panel, "Aim speed", 2, 80, 0.5,
+        Slider(panel, "Aim speed", 2, 80, 0.5, GyroSettings.GameDefault.Sensitivity / 10.0,
             () => _input.Snapshot().GameGyro.Sensitivity / 10.0,
             v => _input.Update(s => s with { GameGyro = s.GameGyro with { Sensitivity = v * 10.0 } }),
             v => $"{v:0.#} counts/°",
             "Mouse counts per degree you turn the controller. Your game's own mouse sensitivity multiplies this.");
-        Slider(panel, "Smoothing", 0, SmoothingLevel.Max, 1,
+        Slider(panel, "Smoothing", 0, SmoothingLevel.Max, 1, SmoothingLevel.Of(GyroSettings.GameDefault),
             () => SmoothingLevel.Of(_input.Snapshot().GameGyro),
             v => _input.Update(s => s with { GameGyro = SmoothingLevel.Apply(s.GameGyro, (int)v) }),
             SmoothingLabel);
         Check(panel, "Stick moves with W A S D",
             () => _input.Snapshot().GameStickMovement,
             v => _input.Update(s => s with { GameStickMovement = v }));
-        Slider(panel, "Right stick turn speed (both Joy-Cons)", 60, 720, 10,
+        Slider(panel, "Right stick turn speed (both Joy-Cons)", 60, 720, 10, InputSettings.DefaultGameStickTurnSpeed,
             () => _input.Snapshot().GameStickTurnSpeed,
             v => _input.Update(s => s with { GameStickTurnSpeed = v }),
             v => $"{v:0} °/s",
@@ -120,22 +120,22 @@ internal sealed class SettingsWindow : Window
             [("Always", ControllerGyroActivation.Always), ("Only while ZL (left trigger) is held", ControllerGyroActivation.WhileLeftTrigger)],
             () => _input.Snapshot().ControllerGyroActivation,
             v => _input.Update(s => s with { ControllerGyroActivation = v }));
-        Slider(panel, "Stick aim: turn speed for a full push", 45, 720, 15,
+        Slider(panel, "Stick aim: turn speed for a full push", 45, 720, 15, InputSettings.DefaultControllerGyroFullSpeed,
             () => _input.Snapshot().ControllerGyroFullSpeed,
             v => _input.Update(s => s with { ControllerGyroFullSpeed = v }),
             v => $"{v:0} °/s",
             "How fast you must turn the Joy-Con to push the right stick all the way. Lower is more sensitive.");
-        Slider(panel, "Stick aim: game's deadzone", 0, 0.4, 0.01,
+        Slider(panel, "Stick aim: game's deadzone", 0, 0.4, 0.01, InputSettings.DefaultControllerStickDeadzone,
             () => _input.Snapshot().ControllerStickDeadzone,
             v => _input.Update(s => s with { ControllerStickDeadzone = v }),
             v => $"{v * 100:0}%",
             "Raise it if small, slow turns don't move the view; lower it if the view creeps or jumps when you start turning.");
-        Slider(panel, "Mouse aim speed", 2, 80, 0.5,
+        Slider(panel, "Mouse aim speed", 2, 80, 0.5, GyroSettings.GameDefault.Sensitivity / 10.0,
             () => _input.Snapshot().ControllerGyro.Sensitivity / 10.0,
             v => _input.Update(s => s with { ControllerGyro = s.ControllerGyro with { Sensitivity = v * 10.0 } }),
             v => $"{v:0.#} counts/°",
             "Used when gyro aims through the mouse.");
-        Slider(panel, "Smoothing", 0, SmoothingLevel.Max, 1,
+        Slider(panel, "Smoothing", 0, SmoothingLevel.Max, 1, SmoothingLevel.Of(GyroSettings.GameDefault),
             () => SmoothingLevel.Of(_input.Snapshot().ControllerGyro),
             v => _input.Update(s => s with { ControllerGyro = SmoothingLevel.Apply(s.ControllerGyro, (int)v) }),
             SmoothingLabel);
@@ -144,11 +144,11 @@ internal sealed class SettingsWindow : Window
         Check(panel, "Stick scrolls",
             () => _input.Snapshot().JoystickScrollEnabled,
             v => _input.Update(s => s with { JoystickScrollEnabled = v }));
-        Slider(panel, "Scroll speed", 1, 30, 0.5,
+        Slider(panel, "Scroll speed", 1, 30, 0.5, InputSettings.DefaultJoystickScrollSpeed,
             () => _input.Snapshot().JoystickScrollSpeed,
             v => _input.Update(s => s with { JoystickScrollSpeed = v }),
             v => $"{v:0.#}");
-        Slider(panel, "Scroll acceleration", 1, 6, 0.1,
+        Slider(panel, "Scroll acceleration", 1, 6, 0.1, InputSettings.DefaultJoystickScrollAcceleration,
             () => _input.Snapshot().JoystickScrollAcceleration,
             v => _input.Update(s => s with { JoystickScrollAcceleration = v }),
             v => $"{v:0.0}×",
@@ -162,12 +162,12 @@ internal sealed class SettingsWindow : Window
         var radial = new Button { Content = "Edit radial menu…", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
         radial.Click += (_, _) => OpenRadialEditor();
         panel.Children.Add(radial);
-        Slider(panel, "Hold time", 0.1, 1.0, 0.05,
+        Slider(panel, "Hold time", 0.1, 1.0, 0.05, InputSettings.DefaultHoldThreshold,
             () => _input.Snapshot().HoldThreshold,
             v => _input.Update(s => s with { HoldThreshold = v }),
             v => $"{v:0.00} s",
             "How long a press must last to count as a hold (dictation on Y, switching modes on C, and so on).");
-        Slider(panel, "Double-tap window", 0.15, 0.6, 0.05,
+        Slider(panel, "Double-tap window", 0.15, 0.6, 0.05, InputSettings.DefaultDoubleTapWindow,
             () => _input.Snapshot().DoubleTapWindow,
             v => _input.Update(s => s with { DoubleTapWindow = v }),
             v => $"{v:0.00} s",
@@ -178,7 +178,7 @@ internal sealed class SettingsWindow : Window
             "Off leaves only the buttons working, in every mode.");
 
         Section(panel, "Battery and motion");
-        Slider(panel, "Sleep when unused for", 0, 60, 1,
+        Slider(panel, "Sleep when unused for", 0, 60, 1, AppSettingsFile.DefaultIdleSleepMinutes,
             () => _file.IdleSleepMinutes,
             v =>
             {
@@ -343,7 +343,7 @@ internal sealed class SettingsWindow : Window
     };
 
     private void Slider(
-        Panel panel, string label, double min, double max, double step,
+        Panel panel, string label, double min, double max, double step, double defaultValue,
         Func<double> read, Action<double> write, Func<double, string> format, string? hint = null)
     {
         var value = new TextBlock { MinWidth = 90, TextAlignment = TextAlignment.Right };
@@ -367,6 +367,10 @@ internal sealed class SettingsWindow : Window
             value.Text = format(e.NewValue);
             if (!_loading) write(e.NewValue);
         };
+
+        var reset = SliderReset.For(slider, defaultValue, format);
+        DockPanel.SetDock(reset, Dock.Right);
+        header.Children.Insert(0, reset);
 
         _refreshers.Add(() =>
         {
