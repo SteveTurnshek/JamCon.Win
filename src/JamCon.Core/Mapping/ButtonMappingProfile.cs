@@ -10,16 +10,21 @@ namespace JamCon.Core.Mapping;
 public sealed class ButtonMappingProfile
 {
     public const double DefaultHoldThreshold = 0.3;
+    public const double DefaultDoubleTapWindow = 0.3;
 
     private readonly ButtonActions[] _actions = new ButtonActions[JoyCon2ButtonLayout.ButtonCount];
 
     [JsonConstructor]
-    public ButtonMappingProfile(IReadOnlyDictionary<JoyCon2Button, ButtonActions>? mappings, double holdThreshold = DefaultHoldThreshold)
+    public ButtonMappingProfile(
+        IReadOnlyDictionary<JoyCon2Button, ButtonActions>? mappings,
+        double holdThreshold = DefaultHoldThreshold,
+        double doubleTapWindow = DefaultDoubleTapWindow)
     {
         Mappings = mappings is null
             ? new Dictionary<JoyCon2Button, ButtonActions>()
             : new Dictionary<JoyCon2Button, ButtonActions>(mappings);
         HoldThreshold = holdThreshold;
+        DoubleTapWindow = doubleTapWindow;
 
         Array.Fill(_actions, ButtonActions.Empty);
         foreach (var (button, actions) in Mappings) _actions[(int)button] = actions;
@@ -40,6 +45,12 @@ public sealed class ButtonMappingProfile
     /// <summary>Seconds a button must be held before its hold action fires.</summary>
     public double HoldThreshold { get; }
 
+    /// <summary>
+    /// Seconds after a short press during which a second press counts as a double tap. Only buttons
+    /// with a double-tap action wait for it.
+    /// </summary>
+    public double DoubleTapWindow { get; }
+
     [JsonIgnore]
     public bool HasDragMapping { get; }
 
@@ -54,7 +65,7 @@ public sealed class ButtonMappingProfile
     public ButtonMappingProfile WithActions(JoyCon2Button button, ButtonActions actions)
     {
         var copy = new Dictionary<JoyCon2Button, ButtonActions>(Mappings) { [button] = actions };
-        return new ButtonMappingProfile(copy, HoldThreshold);
+        return new ButtonMappingProfile(copy, HoldThreshold, DoubleTapWindow);
     }
 
     /// <summary>Setting a gyro mode as the press clears the hold, as upstream does.</summary>
@@ -67,7 +78,7 @@ public sealed class ButtonMappingProfile
     public ButtonMappingProfile WithHold(JoyCon2Button button, ButtonAction hold) =>
         WithActions(button, ActionsFor(button) with { Hold = hold });
 
-    public ButtonMappingProfile WithHoldThreshold(double seconds) => new(Mappings, seconds);
+    public ButtonMappingProfile WithHoldThreshold(double seconds) => new(Mappings, seconds, DoubleTapWindow);
 
     /// <summary>
     /// Windows defaults, re-derived from upstream's production one-handed layout.
@@ -79,9 +90,12 @@ public sealed class ButtonMappingProfile
     ///
     /// Changed for Windows: HOME/Capture opens Task View instead of Mission Control (hold:
     /// Play/Pause); stick click is the Browser Back key instead of ⌘[ (hold: Browser Forward
-    /// instead of ⌘]). Y/Right was ^Space with Enter on hold: a dictate-then-send pair, ^Space being
-    /// a common dictation-app shortcut on macOS. Windows' built-in dictation is Win+H, so Y/Right
-    /// starts that, and holding it still sends Enter.
+    /// instead of ⌘]).
+    ///
+    /// Y/Right is the dictation button. Upstream had ^Space with Enter on hold; Steve's dictation
+    /// app (Handy) uses Ctrl+Space in toggle mode, so: hold to dictate (Ctrl+Space as the hold
+    /// starts and again as it ends), double tap for Enter, and tap-then-hold to delete a word every
+    /// half second (Ctrl+Backspace). A single tap does nothing.
     /// </remarks>
     public static ButtonMappingProfile DefaultFor(JoyCon2Handedness handedness)
     {
@@ -89,8 +103,10 @@ public sealed class ButtonMappingProfile
             ButtonAction.Key(VirtualKeys.Escape),
             ButtonAction.Key(VirtualKeys.C, KeyModifiers.Control));
         var dictateOrEnter = new ButtonActions(
-            ButtonAction.System(SystemAction.Dictation),
-            ButtonAction.Key(VirtualKeys.Return));
+            press: ButtonAction.None,
+            hold: ButtonAction.HoldToggle(VirtualKeys.Space, KeyModifiers.Control),
+            doubleTap: ButtonAction.Key(VirtualKeys.Return),
+            doubleTapHold: ButtonAction.Repeat(VirtualKeys.Back, KeyModifiers.Control, 0.5));
         var taskView = new ButtonActions(
             ButtonAction.System(SystemAction.TaskView),
             ButtonAction.System(SystemAction.PlayPause));

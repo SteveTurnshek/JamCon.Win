@@ -33,6 +33,15 @@ public sealed class ActionExecutor
                 PerformSystemAction(system.Action, owner);
                 break;
 
+            // As a plain press, the hold-only kinds behave as one tap; their held behaviour is the
+            // engine's, since it needs the release and a timer.
+            case HoldToggleAction toggle when isPressed:
+                _coordinator.Tap(SyntheticOutput.Key(toggle.Combo), owner);
+                break;
+            case RepeatKeyAction repeat when isPressed:
+                _coordinator.Tap(SyntheticOutput.Key(repeat.Combo), owner);
+                break;
+
             // None, and the gyro modes, which the engine's gyro routing handles.
         }
     }
@@ -46,6 +55,12 @@ public sealed class ActionExecutor
                 break;
             case KeyPressAction key:
                 _coordinator.Tap(SyntheticOutput.Key(key.Combo), owner);
+                break;
+            case HoldToggleAction toggle:
+                _coordinator.Tap(SyntheticOutput.Key(toggle.Combo), owner);
+                break;
+            case RepeatKeyAction repeat:
+                _coordinator.Tap(SyntheticOutput.Key(repeat.Combo), owner);
                 break;
             case SystemShortcutAction system:
                 PerformSystemAction(system.Action, owner);

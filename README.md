@@ -68,12 +68,17 @@ Default buttons for a right Joy-Con 2:
 | X | Move cursor while held | |
 | B | Radial menu: hold, point at a slice, release | |
 | A | Esc | Ctrl+C |
-| Y | Dictation (Win+H) | Enter |
+| Y | See below | Dictate while held |
 | HOME | Task View | Play/Pause |
 | Stick click | Browser back | Browser forward |
 | SL / SR | Down / Up arrow | |
 | C | Nothing | |
 | Stick | Scroll | |
+
+**Y is the dictation button**, built for a dictation app whose shortcut is Ctrl+Space in toggle mode
+(such as Handy): hold Y to dictate (JamCon presses Ctrl+Space as the hold starts and again when you
+let go), double tap Y for Enter, and tap then hold Y to delete a word every half second
+(Ctrl+Backspace) until you let go. A single tap does nothing. Dictation starts 0.3 s into the hold.
 
 The radial menu's default slices are the four arrow keys, as upstream. While it is open the cursor
 holds still and a dot follows the controller instead.

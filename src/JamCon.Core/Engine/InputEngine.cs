@@ -260,8 +260,22 @@ public sealed class InputEngine
 
             if (isPressed != wasPressed)
             {
-                if (isPressed) ButtonDown(device, button, profile.ActionsFor(button), profile.HoldThreshold);
-                else ButtonUp(device, button, profile);
+                var actions = profile.ActionsFor(button);
+
+                // A gesture already under way finishes as it began, even if the mapping changed mid-way.
+                if (device.Gestures[index] is not null || (isPressed && actions.UsesDoubleTap))
+                {
+                    if (isPressed) GestureDown(device, button, actions, profile);
+                    else GestureUp(device, button, profile);
+                }
+                else if (isPressed)
+                {
+                    ButtonDown(device, button, actions, profile.HoldThreshold);
+                }
+                else
+                {
+                    ButtonUp(device, button, profile);
+                }
             }
 
             device.PreviousButtons[index] = isPressed;
@@ -276,6 +290,8 @@ public sealed class InputEngine
             device.PreviousButtons[index] = JoyCon2ButtonLayout.IsPressed(buttons, button, device.Handedness);
             device.PressStates[index]?.HoldTimer?.Cancel();
             device.PressStates[index] = null;
+            device.Gestures[index]?.Timer?.Cancel();
+            device.Gestures[index] = null;
         }
     }
 
@@ -308,7 +324,7 @@ public sealed class InputEngine
                 // new press, while this callback was queued.
                 if (!ReferenceEquals(device.PressStates[index], state) || state.HoldFired) return;
                 state.HoldFired = true;
-                _executor.Execute(state.Actions.Hold, true, state.HoldOwner);
+                BeginHeld(state.Actions.Hold, state.HoldOwner, state.Held);
             });
         }
     }
@@ -340,11 +356,11 @@ public sealed class InputEngine
         if (state.Actions.Press is MouseClickAction)
         {
             _executor.Execute(state.Actions.Press, false, state.PressOwner);
-            if (state.HoldFired) _executor.Execute(state.Actions.Hold, false, state.HoldOwner);
+            if (state.HoldFired) EndHeld(state.Actions.Hold, state.HoldOwner, state.Held);
         }
         else if (state.HoldFired)
         {
-            _executor.Execute(state.Actions.Hold, false, state.HoldOwner);
+            EndHeld(state.Actions.Hold, state.HoldOwner, state.Held);
         }
         else if (state.Actions.Press is not NoAction)
         {
@@ -384,8 +400,20 @@ public sealed class InputEngine
             if (state is null) continue;
             state.HoldTimer?.Cancel();
             _executor.Execute(state.Actions.Press, false, state.PressOwner);
-            if (state.HoldFired) _executor.Execute(state.Actions.Hold, false, state.HoldOwner);
+            if (state.HoldFired) EndHeld(state.Actions.Hold, state.HoldOwner, state.Held);
         }
+
+        // Ending held gestures matters beyond releasing keys: a hold-toggle must send its closing
+        // tap, or a dictation app would be left recording after a disconnect.
+        foreach (var gesture in device.Gestures)
+        {
+            if (gesture is null) continue;
+            gesture.Timer?.Cancel();
+            if (gesture.Phase == GesturePhase.FirstHeld) EndHeld(gesture.Actions.Hold, gesture.HoldOwner, gesture.Held);
+            if (gesture.Phase == GesturePhase.SecondHeld) EndHeld(gesture.Actions.DoubleTapHold, gesture.DoubleOwner, gesture.Held);
+        }
+
+        Array.Clear(device.Gestures);
 
         // A menu open on a device that is going away closes without running anything.
         if (_radialOwner == device.Id) CloseRadialMenu(null);
@@ -398,6 +426,154 @@ public sealed class InputEngine
         _executor.ReleaseAll(device.Id);
     }
 
+    /// <summary>
+    /// Starts a held action. Keys and clicks go down; a hold-toggle taps its key; a repeating key taps
+    /// at once and then on a timer until <see cref="EndHeld"/>.
+    /// </summary>
+    private void BeginHeld(ButtonAction action, SyntheticOutputOwner owner, HeldAction held)
+    {
+        held.Active = true;
+        switch (action)
+        {
+            case HoldToggleAction toggle:
+                _executor.Tap(toggle, owner);
+                break;
+            case RepeatKeyAction repeat:
+                _executor.Tap(repeat, owner);
+                ScheduleRepeat(repeat, owner, held);
+                break;
+            default:
+                _executor.Execute(action, true, owner);
+                break;
+        }
+    }
+
+    private void ScheduleRepeat(RepeatKeyAction repeat, SyntheticOutputOwner owner, HeldAction held)
+    {
+        held.Repeat = _holdScheduler.Schedule(TimeSpan.FromSeconds(Math.Max(0.05, repeat.IntervalSeconds)), () =>
+        {
+            if (!held.Active) return;
+            _executor.Tap(repeat, owner);
+            ScheduleRepeat(repeat, owner, held);
+        });
+    }
+
+    /// <summary>Ends a held action begun by <see cref="BeginHeld"/>. Safe to call twice.</summary>
+    private void EndHeld(ButtonAction action, SyntheticOutputOwner owner, HeldAction held)
+    {
+        if (!held.Active) return;
+        held.Active = false;
+        held.Repeat?.Cancel();
+        switch (action)
+        {
+            case HoldToggleAction toggle:
+                _executor.Tap(toggle, owner);
+                break;
+            case RepeatKeyAction:
+                break;
+            default:
+                _executor.Execute(action, false, owner);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// First press: wait to see whether it is a hold (run Hold) or a short press. After a short
+    /// press, wait up to the double-tap window for a second press: none runs Press, a short second
+    /// press runs DoubleTap, a held second press runs DoubleTapHold. See <see cref="ButtonActions"/>.
+    /// </summary>
+    private void GestureDown(DeviceState device, JoyCon2Button button, ButtonActions actions, ButtonMappingProfile profile)
+    {
+        var index = (int)button;
+        var gesture = device.Gestures[index];
+
+        if (gesture is { Phase: GesturePhase.AwaitingSecond })
+        {
+            gesture.Timer?.Cancel();
+            if (gesture.Actions.DoubleTapHold is NoAction)
+            {
+                // Nothing to wait for: act on the second press at once.
+                _executor.Tap(gesture.Actions.DoubleTap, gesture.DoubleOwner);
+                gesture.Phase = GesturePhase.SecondTapped;
+                return;
+            }
+
+            gesture.Phase = GesturePhase.SecondDown;
+            var second = gesture;
+            gesture.Timer = _holdScheduler.Schedule(TimeSpan.FromSeconds(profile.HoldThreshold), () =>
+            {
+                if (!ReferenceEquals(device.Gestures[index], second) || second.Phase != GesturePhase.SecondDown) return;
+                second.Phase = GesturePhase.SecondHeld;
+                BeginHeld(second.Actions.DoubleTapHold, second.DoubleOwner, second.Held);
+            });
+            return;
+        }
+
+        var first = new Gesture(actions, device.Id, button.ToString()) { Phase = GesturePhase.FirstDown };
+        device.Gestures[index] = first;
+        first.Timer = _holdScheduler.Schedule(TimeSpan.FromSeconds(profile.HoldThreshold), () =>
+        {
+            if (!ReferenceEquals(device.Gestures[index], first) || first.Phase != GesturePhase.FirstDown) return;
+            first.Phase = GesturePhase.FirstHeld;
+            BeginHeld(first.Actions.Hold, first.HoldOwner, first.Held);
+        });
+    }
+
+    private void GestureUp(DeviceState device, JoyCon2Button button, ButtonMappingProfile profile)
+    {
+        var index = (int)button;
+        if (device.Gestures[index] is not { } gesture) return;
+        gesture.Timer?.Cancel();
+
+        switch (gesture.Phase)
+        {
+            case GesturePhase.FirstDown:
+                gesture.Phase = GesturePhase.AwaitingSecond;
+                gesture.Timer = _holdScheduler.Schedule(TimeSpan.FromSeconds(profile.DoubleTapWindow), () =>
+                {
+                    if (!ReferenceEquals(device.Gestures[index], gesture) || gesture.Phase != GesturePhase.AwaitingSecond) return;
+                    device.Gestures[index] = null;
+                    if (gesture.Actions.Press is not NoAction) _executor.Tap(gesture.Actions.Press, gesture.PressOwner);
+                });
+                return;
+
+            case GesturePhase.FirstHeld:
+                EndHeld(gesture.Actions.Hold, gesture.HoldOwner, gesture.Held);
+                break;
+
+            case GesturePhase.SecondDown:
+                _executor.Tap(gesture.Actions.DoubleTap, gesture.DoubleOwner);
+                break;
+
+            case GesturePhase.SecondHeld:
+                EndHeld(gesture.Actions.DoubleTapHold, gesture.DoubleOwner, gesture.Held);
+                break;
+        }
+
+        device.Gestures[index] = null;
+    }
+
+    /// <summary>A held action in progress, and its repeat timer if it has one.</summary>
+    private sealed class HeldAction
+    {
+        public bool Active { get; set; }
+        public IHoldTimer? Repeat { get; set; }
+    }
+
+    private enum GesturePhase { FirstDown, FirstHeld, AwaitingSecond, SecondDown, SecondHeld, SecondTapped }
+
+    /// <summary>A double-tap-capable press sequence, with the actions captured at its first press.</summary>
+    private sealed class Gesture(ButtonActions actions, string deviceId, string control)
+    {
+        public ButtonActions Actions { get; } = actions;
+        public GesturePhase Phase { get; set; }
+        public IHoldTimer? Timer { get; set; }
+        public HeldAction Held { get; } = new();
+        public SyntheticOutputOwner PressOwner { get; } = new(deviceId, control, SyntheticOutputRole.Press);
+        public SyntheticOutputOwner HoldOwner { get; } = new(deviceId, control, SyntheticOutputRole.Hold);
+        public SyntheticOutputOwner DoubleOwner { get; } = new(deviceId, control, SyntheticOutputRole.DoubleTap);
+    }
+
     private sealed class PressState(ButtonActions actions, string deviceId, string control)
     {
         public ButtonActions Actions { get; } = actions;
@@ -405,6 +581,7 @@ public sealed class InputEngine
         public SyntheticOutputOwner HoldOwner { get; } = new(deviceId, control, SyntheticOutputRole.Hold);
         public bool HoldFired { get; set; }
         public IHoldTimer? HoldTimer { get; set; }
+        public HeldAction Held { get; } = new();
     }
 
     private sealed class DeviceState(string id, JoyCon2Handedness handedness)
@@ -421,6 +598,7 @@ public sealed class InputEngine
         public bool RequiresNeutralAfterReconnect { get; set; }
         public bool[] PreviousButtons { get; } = new bool[JoyCon2ButtonLayout.ButtonCount];
         public PressState?[] PressStates { get; } = new PressState?[JoyCon2ButtonLayout.ButtonCount];
+        public Gesture?[] Gestures { get; } = new Gesture?[JoyCon2ButtonLayout.ButtonCount];
         public bool DragButtonHeld { get; set; }
         public bool ScrollButtonHeld { get; set; }
         public bool RadialMenuButtonHeld { get; set; }

@@ -240,7 +240,7 @@ public class GoldenVectorTests
 
         var deliberate = timedEvents.Where(e => e.Time is > 37.5 and < 215).Select(e => e.Event).ToArray();
         var copy = new KeyCombo(VirtualKeys.C, KeyModifiers.Control);
-        var enter = new KeyCombo(VirtualKeys.Return);
+        var dictation = new KeyCombo(VirtualKeys.Space, KeyModifiers.Control);
         var forward = new KeyCombo(VirtualKeys.BrowserForward);
         var down = new KeyCombo(VirtualKeys.Down);
         var up = new KeyCombo(VirtualKeys.Up);
@@ -249,7 +249,8 @@ public class GoldenVectorTests
             [
                 RecordingOutputSink.Down(copy), RecordingOutputSink.Up(copy),              // A held: hold action
                 // B: unmapped. X: drag clutch, no output.
-                RecordingOutputSink.Down(enter), RecordingOutputSink.Up(enter),            // Y held: hold action
+                RecordingOutputSink.Down(dictation), RecordingOutputSink.Up(dictation),    // Y held: dictation on
+                RecordingOutputSink.Down(dictation), RecordingOutputSink.Up(dictation),    // Y released: off
                 RecordingOutputSink.Down(MouseButton.Right), RecordingOutputSink.Up(MouseButton.Right),
                 RecordingOutputSink.Down(MouseButton.Left), RecordingOutputSink.Up(MouseButton.Left),
                 RecordingOutputSink.Down(MouseButton.Middle), RecordingOutputSink.Up(MouseButton.Middle),

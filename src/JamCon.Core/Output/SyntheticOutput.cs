@@ -22,6 +22,7 @@ public enum SyntheticOutputRole
     Hold,
     RadialMenu,
     SystemAction,
+    DoubleTap,
 }
 
 /// <summary>Who is holding an output down: a control on a device, in a given role.</summary>

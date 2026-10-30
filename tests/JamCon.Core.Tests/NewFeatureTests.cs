@@ -256,11 +256,15 @@ public class RadialMenuEngineTests
 public class WindowsDefaultsTests
 {
     [Fact]
-    public void YIsDictateThenSendAndBIsTheRadialMenu()
+    public void YIsHoldToDictateDoubleTapEnterAndBIsTheRadialMenu()
     {
         var right = ButtonMappingProfile.DefaultFor(JoyCon2Handedness.Right);
         Assert.Equal(
-            new ButtonActions(ButtonAction.System(SystemAction.Dictation), ButtonAction.Key(VirtualKeys.Return)),
+            new ButtonActions(
+                ButtonAction.None,
+                ButtonAction.HoldToggle(VirtualKeys.Space, KeyModifiers.Control),
+                ButtonAction.Key(VirtualKeys.Return),
+                ButtonAction.Repeat(VirtualKeys.Back, KeyModifiers.Control, 0.5)),
             right.ActionsFor(JoyCon2Button.Y));
         Assert.Equal(new ButtonActions(ButtonAction.RadialMenu), right.ActionsFor(JoyCon2Button.B));
         Assert.Equal(new KeyCombo(VirtualKeys.H, KeyModifiers.Win), ActionExecutor.ShortcutFor(SystemAction.Dictation));

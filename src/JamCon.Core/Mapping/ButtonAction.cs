@@ -25,6 +25,7 @@ public enum KeyModifiers
 /// </summary>
 public static class VirtualKeys
 {
+    public const ushort Back = 0x08;
     public const ushort Tab = 0x09;
     public const ushort Return = 0x0D;
     public const ushort Escape = 0x1B;
@@ -42,7 +43,7 @@ public static class VirtualKeys
 
     private static readonly Dictionary<ushort, string> Names = new()
     {
-        [0x08] = "Backspace", [Tab] = "Tab", [Return] = "Enter", [Escape] = "Esc", [Space] = "Space",
+        [Back] = "Backspace", [Tab] = "Tab", [Return] = "Enter", [Escape] = "Esc", [Space] = "Space",
         [0x21] = "Page Up", [0x22] = "Page Down", [0x23] = "End", [0x24] = "Home",
         [Left] = "←", [Up] = "↑", [Right] = "→", [Down] = "↓", [0x2E] = "Delete",
         [BrowserBack] = "Browser Back", [BrowserForward] = "Browser Forward",
@@ -108,6 +109,8 @@ public enum SystemAction
 [JsonDerivedType(typeof(DragAction), "drag")]
 [JsonDerivedType(typeof(ScrollAction), "scroll")]
 [JsonDerivedType(typeof(RadialMenuAction), "radialMenu")]
+[JsonDerivedType(typeof(HoldToggleAction), "holdToggle")]
+[JsonDerivedType(typeof(RepeatKeyAction), "repeatKey")]
 public abstract record ButtonAction
 {
     public static ButtonAction None { get; } = new NoAction();
@@ -119,6 +122,10 @@ public abstract record ButtonAction
     public static ButtonAction Key(ushort virtualKey, KeyModifiers modifiers = KeyModifiers.None) =>
         new KeyPressAction(new KeyCombo(virtualKey, modifiers));
     public static ButtonAction System(SystemAction action) => new SystemShortcutAction(action);
+    public static ButtonAction HoldToggle(ushort virtualKey, KeyModifiers modifiers = KeyModifiers.None) =>
+        new HoldToggleAction(new KeyCombo(virtualKey, modifiers));
+    public static ButtonAction Repeat(ushort virtualKey, KeyModifiers modifiers, double intervalSeconds) =>
+        new RepeatKeyAction(new KeyCombo(virtualKey, modifiers), intervalSeconds);
 
     /// <summary>Drag, scroll and radial menu: modes held for the button's duration, never taps.</summary>
     [JsonIgnore]
@@ -180,17 +187,46 @@ public sealed record RadialMenuAction : ButtonAction
     public override string DisplayName => "Radial Menu";
 }
 
-/// <summary>A tap action and an optional long-press action.</summary>
+/// <summary>
+/// Taps the key when the hold begins and again when it ends: hold-to-talk for an app whose shortcut
+/// toggles, such as a dictation app set to toggle mode.
+/// </summary>
+public sealed record HoldToggleAction(KeyCombo Combo) : ButtonAction
+{
+    public override string DisplayName => $"{Combo} on press and on release";
+}
+
+/// <summary>Taps the key at once, then again every <paramref name="IntervalSeconds"/> while held.</summary>
+public sealed record RepeatKeyAction(KeyCombo Combo, double IntervalSeconds) : ButtonAction
+{
+    public override string DisplayName => $"{Combo}, every {IntervalSeconds:0.##} s while held";
+}
+
+/// <summary>
+/// What a button does, by gesture. Press and Hold as upstream; DoubleTap and DoubleTapHold are new.
+/// </summary>
+/// <remarks>
+/// With either double-tap action set, a short press is not acted on at release: it waits up to the
+/// profile's double-tap window for a second press. A second short press runs
+/// <see cref="DoubleTap"/>; holding the second press runs <see cref="DoubleTapHold"/> for as long
+/// as it is held; no second press runs <see cref="Press"/>. Holding the first press runs
+/// <see cref="Hold"/> exactly as without double-tap actions.
+/// </remarks>
 public sealed record ButtonActions
 {
     public static ButtonActions Empty { get; } = new(ButtonAction.None, ButtonAction.None);
 
-    /// <remarks>Annotated so JSON has exactly one constructor to choose.</remarks>
+    /// <remarks>
+    /// Annotated so JSON has exactly one constructor to choose. The double-tap parameters are
+    /// optional so profiles saved before they existed still load.
+    /// </remarks>
     [JsonConstructor]
-    public ButtonActions(ButtonAction press, ButtonAction hold)
+    public ButtonActions(ButtonAction press, ButtonAction hold, ButtonAction? doubleTap = null, ButtonAction? doubleTapHold = null)
     {
         Press = press;
         Hold = hold;
+        DoubleTap = doubleTap ?? ButtonAction.None;
+        DoubleTapHold = doubleTapHold ?? ButtonAction.None;
     }
 
     public ButtonActions(ButtonAction press) : this(press, ButtonAction.None)
@@ -199,7 +235,13 @@ public sealed record ButtonActions
 
     public ButtonAction Press { get; init; }
     public ButtonAction Hold { get; init; }
+    public ButtonAction DoubleTap { get; init; }
+    public ButtonAction DoubleTapHold { get; init; }
 
     [JsonIgnore]
     public bool PressIsGyroMode => Press.IsGyroMode;
+
+    /// <summary>True when presses must wait to see whether a second press follows.</summary>
+    [JsonIgnore]
+    public bool UsesDoubleTap => !PressIsGyroMode && (DoubleTap is not NoAction || DoubleTapHold is not NoAction);
 }
