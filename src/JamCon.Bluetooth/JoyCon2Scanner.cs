@@ -41,6 +41,28 @@ public sealed class JoyCon2Scanner : IDisposable
     /// </summary>
     public event Action<ulong, byte[]>? UnrecognizedNintendoAdvertisement;
 
+    /// <summary>
+    /// Full detail for every distinct advertisement from <see cref="WatchAddress"/>, from a Nintendo
+    /// company ID, or from a device with a Joy-Con-like name. Deduplicated by payload.
+    /// </summary>
+    public event Action<string>? Diagnostic;
+
+    /// <summary>An address to dump in full whenever it advertises, e.g. a known controller.</summary>
+    public ulong? WatchAddress { get; init; }
+
+    /// <summary>
+    /// Nintendo's Bluetooth SIG company identifier. Not the same number as the USB vendor ID
+    /// (0x057E) that the payload carries — the first scanner revision checked the USB ID here and
+    /// so could never have flagged a Nintendo advertisement. 0x0553 is from memory of the SIG
+    /// assigned-numbers list and is unverified; both values are accepted until hardware confirms.
+    /// </summary>
+    private const ushort NintendoBluetoothCompanyId = 0x0553;
+
+    private static bool IsNintendoCompanyId(ushort companyId) =>
+        companyId == NintendoBluetoothCompanyId || companyId == JoyCon2Ids.NintendoVendorId;
+
+    private readonly ConcurrentDictionary<string, byte> _diagnosticKeys = new();
+
     /// <summary>Total advertisements observed, from any device.</summary>
     public int TotalAdvertisements => _totalAdvertisements;
 
@@ -92,6 +114,33 @@ public sealed class JoyCon2Scanner : IDisposable
         if (_watcher.Status == BluetoothLEAdvertisementWatcherStatus.Started) _watcher.Stop();
     }
 
+    private void EmitDiagnostic(BluetoothLEAdvertisementReceivedEventArgs args, string? localName)
+    {
+        if (Diagnostic is null) return;
+
+        var sections = args.Advertisement.ManufacturerData
+            .Select(s => (s.CompanyId, Payload: BufferConvert.ToBytes(s.Data)))
+            .ToArray();
+
+        var relevant = args.BluetoothAddress == WatchAddress
+            || sections.Any(s => IsNintendoCompanyId(s.CompanyId))
+            || (localName?.Contains("joy", StringComparison.OrdinalIgnoreCase) ?? false)
+            || (localName?.Contains("nintendo", StringComparison.OrdinalIgnoreCase) ?? false);
+        if (!relevant) return;
+
+        var manufacturer = sections.Length == 0
+            ? "none"
+            : string.Join(" ", sections.Select(s => $"[company 0x{s.CompanyId:X4}: {Convert.ToHexString(s.Payload)}]"));
+        var services = string.Join(",", args.Advertisement.ServiceUuids);
+        var line =
+            $"addr={args.BluetoothAddress:X12} type={args.AdvertisementType} rssi={args.RawSignalStrengthInDBm} " +
+            $"name='{localName}' services=[{services}] manufacturer={manufacturer}";
+
+        // RSSI changes on every packet, so dedupe on everything except it.
+        var key = $"{args.BluetoothAddress:X12}|{args.AdvertisementType}|{localName}|{services}|{manufacturer}";
+        if (_diagnosticKeys.TryAdd(key, 0)) Diagnostic(line);
+    }
+
     private void OnReceived(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
     {
         // Counted for every advertisement, so "found nothing" can be distinguished from
@@ -107,6 +156,8 @@ public sealed class JoyCon2Scanner : IDisposable
             _interestingNames.TryAdd($"{localName} ({args.BluetoothAddress:X12})", 0);
         }
 
+        EmitDiagnostic(args, localName);
+
         foreach (var section in args.Advertisement.ManufacturerData)
         {
             var payload = BufferConvert.ToBytes(section.Data);
@@ -114,7 +165,7 @@ public sealed class JoyCon2Scanner : IDisposable
             if (!JoyCon2Advertisement.TryIdentify(payload, out var identity))
             {
                 // WinRT exposes the company ID separately, so check it directly as well.
-                if (section.CompanyId == JoyCon2Ids.NintendoVendorId)
+                if (IsNintendoCompanyId(section.CompanyId))
                 {
                     UnrecognizedNintendoAdvertisement?.Invoke(args.BluetoothAddress, payload);
                 }

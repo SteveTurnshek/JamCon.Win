@@ -62,7 +62,9 @@ if (discoveries.Count == 0)
             $"connected={candidate.IsConnected}");
     }
 
-    var usable = paired.Where(p => p.ServiceConfirmed).ToArray();
+    // Name-matched candidates are accepted too: the cached service lookup is empty whenever the
+    // device was recently re-added, and the session does an authoritative uncached discovery anyway.
+    var usable = paired.OrderByDescending(p => p.ServiceConfirmed).ToArray();
     if (usable.Length > 0)
     {
         Console.WriteLine();
@@ -134,7 +136,8 @@ return 0;
 
 static async Task<List<JoyCon2Discovery>> ScanAsync(ProbeOptions options, CancellationToken ct)
 {
-    using var scanner = new JoyCon2Scanner();
+    using var scanner = new JoyCon2Scanner { WatchAddress = options.WatchAddress };
+    scanner.Diagnostic += line => { Console.WriteLine(); Console.WriteLine($"  [adv] {line}"); };
     var found = new List<JoyCon2Discovery>();
 
     scanner.Discovered += discovery =>
@@ -258,7 +261,8 @@ internal sealed record ProbeOptions(
     int ScanSeconds,
     int DurationSeconds,
     string OutputDirectory,
-    bool UsePaired)
+    bool UsePaired,
+    ulong? WatchAddress)
 {
     public static ProbeOptions? Parse(string[] args)
     {
@@ -266,6 +270,7 @@ internal sealed record ProbeOptions(
         var scanSeconds = 30;
         var durationSeconds = 300;
         var usePaired = false;
+        ulong? watchAddress = null;
         var output = Path.Combine(Environment.CurrentDirectory, "captures");
 
         for (var i = 0; i < args.Length; i++)
@@ -274,6 +279,9 @@ internal sealed record ProbeOptions(
             {
                 case "--dual":
                     dual = true;
+                    break;
+                case "--address" when i + 1 < args.Length:
+                    watchAddress = Convert.ToUInt64(args[++i].Replace(":", "").Replace("-", ""), 16);
                     break;
                 case "--use-paired":
                     usePaired = true;
@@ -298,15 +306,16 @@ internal sealed record ProbeOptions(
             }
         }
 
-        return new ProbeOptions(dual, scanSeconds, durationSeconds, output, usePaired);
+        return new ProbeOptions(dual, scanSeconds, durationSeconds, output, usePaired, watchAddress);
     }
 
     private static void PrintUsage()
     {
-        Console.WriteLine("Usage: Jc2Probe [--dual] [--use-paired] [--scan-seconds N] [--seconds N] [--out DIR]");
+        Console.WriteLine("Usage: Jc2Probe [--dual] [--address HEX] [--use-paired] [--scan-seconds N] [--seconds N] [--out DIR]");
         Console.WriteLine();
         Console.WriteLine("  --dual           Connect to two Joy-Con 2s and measure each one's cadence.");
         Console.WriteLine("                   This is the open question with no prior evidence anywhere.");
+        Console.WriteLine("  --address HEX    Dump every advertisement from this address, e.g. 94:8E:6D:0A:16:AA.");
         Console.WriteLine("  --use-paired     Skip scanning and use a controller already paired to Windows.");
         Console.WriteLine("                   Use this when the SYNC pairing window keeps closing too fast.");
         Console.WriteLine("  --scan-seconds   How long to scan for advertisements (default 30).");

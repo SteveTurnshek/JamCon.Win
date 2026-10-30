@@ -85,7 +85,7 @@ public sealed class JoyCon2Session : IAsyncDisposable
         await RequestThroughputOptimizedParametersAsync();
         await OpenGattSessionAsync();
 
-        var service = await FindServiceAsync();
+        var service = await FindServiceWithRetryAsync(ct);
 
         if (service is null && !wasPaired)
         {
@@ -94,7 +94,7 @@ public sealed class JoyCon2Session : IAsyncDisposable
             _log("Unpaired GATT failed. Attempting to pair, then retrying service discovery.");
             if (!await TryPairAsync(ct)) return false;
 
-            service = await FindServiceAsync();
+            service = await FindServiceWithRetryAsync(ct);
             ConnectPath = Jc2ConnectPath.PairedAfterFailure;
         }
         else
@@ -157,6 +157,74 @@ public sealed class JoyCon2Session : IAsyncDisposable
         catch (Exception ex)
         {
             _log($"GattSession unavailable: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Retries service discovery while waiting for the link to come up.
+    /// </summary>
+    /// <remarks>
+    /// A paired-but-disconnected BLE device reports <c>Unreachable</c> rather than connecting
+    /// instantly: Windows only establishes the link lazily, and a sleeping Joy-Con 2 will not
+    /// respond at all until a button wakes its radio. Discovering once and giving up reports a
+    /// perfectly good controller as missing, which is exactly what happened on the first hardware
+    /// run. `MaintainConnection` is already set, so each retry gives Windows another chance to
+    /// complete the connection it has been asked to hold open.
+    /// </remarks>
+    private async Task<GattDeviceService?> FindServiceWithRetryAsync(
+        CancellationToken ct, int attempts = 40, int delayMilliseconds = 3000)
+    {
+        for (var attempt = 1; attempt <= attempts; attempt++)
+        {
+            var service = await FindServiceAsync();
+            if (service is not null)
+            {
+                // The ATT MTU is negotiated on connect, so the useful value is only available
+                // now. Report 0x05 needs 60 bytes, which a 23-byte default PDU cannot carry.
+                _log($"Connected. Status: {_device!.ConnectionStatus}. " +
+                     $"MaxPduSize now: {_gattSession?.MaxPduSize.ToString() ?? "unknown"}.");
+                return service;
+            }
+
+            if (attempt == attempts) break;
+
+            _log($"Service unreachable (attempt {attempt}/{attempts}, status {_device!.ConnectionStatus}). " +
+                 "PRESS ANY BUTTON ON THE CONTROLLER to wake its radio. Retrying...");
+
+            // Wake early the moment Windows reports the link up. The controller has been seen
+            // flapping between connected and disconnected while uninitialized, so a connected
+            // window can be shorter than the polling delay and would otherwise be missed.
+            if (!await WaitForConnectedOrDelayAsync(delayMilliseconds, ct)) break;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Waits until the device reports <see cref="BluetoothConnectionStatus.Connected"/> or the delay
+    /// elapses, whichever comes first. Returns false only when cancelled.
+    /// </summary>
+    private async Task<bool> WaitForConnectedOrDelayAsync(int delayMilliseconds, CancellationToken ct)
+    {
+        var device = _device!;
+        if (device.ConnectionStatus == BluetoothConnectionStatus.Connected) return true;
+
+        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnStatus(BluetoothLEDevice sender, object _)
+        {
+            _log($"Connection status changed: {sender.ConnectionStatus}.");
+            if (sender.ConnectionStatus == BluetoothConnectionStatus.Connected) connected.TrySetResult();
+        }
+
+        device.ConnectionStatusChanged += OnStatus;
+        try
+        {
+            await Task.WhenAny(connected.Task, Task.Delay(delayMilliseconds, ct));
+            return !ct.IsCancellationRequested;
+        }
+        finally
+        {
+            device.ConnectionStatusChanged -= OnStatus;
         }
     }
 
