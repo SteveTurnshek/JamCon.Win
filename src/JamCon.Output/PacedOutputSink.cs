@@ -4,7 +4,7 @@ using JamCon.Core.Output;
 namespace JamCon.Output;
 
 /// <summary>
-/// Wraps another sink and re-emits cursor and scroll motion at a high fixed rate, so ~67 Hz
+/// Wraps another sink and re-emits cursor, scroll and look motion at a high fixed rate, so ~67 Hz
 /// controller motion looks smooth on high-refresh displays. Buttons and keys pass straight through.
 /// </summary>
 /// <remarks>
@@ -22,10 +22,12 @@ public sealed class PacedOutputSink : IOutputSink, IDisposable
     private readonly object _gate = new();
     private readonly MotionPacer _cursor = new();
     private readonly MotionPacer _scroll = new();
+    private readonly MotionPacer _look = new();
     private readonly AutoResetEvent _wake = new(false);
     private readonly Thread _thread;
     private volatile bool _running = true;
     private double _spreadSeconds;
+    private volatile bool _enabled = true;
 
     /// <param name="spreadSeconds">
     /// How long each delta is spread over: the expected interval between reports.
@@ -56,17 +58,44 @@ public sealed class PacedOutputSink : IOutputSink, IDisposable
         }
     }
 
-    private static double Now => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
-
-    public void MoveCursor(double dx, double dy)
+    /// <summary>
+    /// Off passes motion straight through as it arrives. Switchable at any time: turning it off
+    /// flushes whatever was still being spread out.
+    /// </summary>
+    public bool Enabled
     {
-        lock (_gate) _cursor.Add(dx, dy, Now, _spreadSeconds);
-        _wake.Set();
+        get => _enabled;
+        set
+        {
+            lock (_gate)
+            {
+                _enabled = value;
+                if (!value) FlushLocked();
+            }
+        }
     }
 
-    public void Scroll(double dx, double dy)
+    private static double Now => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+
+    public void MoveCursor(double dx, double dy) => Add(_cursor, dx, dy, _inner.MoveCursor);
+
+    public void Scroll(double dx, double dy) => Add(_scroll, dx, dy, _inner.Scroll);
+
+    public void Look(double dx, double dy) => Add(_look, dx, dy, _inner.Look);
+
+    private void Add(MotionPacer pacer, double dx, double dy, Action<double, double> direct)
     {
-        lock (_gate) _scroll.Add(dx, dy, Now, _spreadSeconds);
+        lock (_gate)
+        {
+            if (!_enabled)
+            {
+                direct(dx, dy);
+                return;
+            }
+
+            pacer.Add(dx, dy, Now, _spreadSeconds);
+        }
+
         _wake.Set();
     }
 
@@ -74,12 +103,19 @@ public sealed class PacedOutputSink : IOutputSink, IDisposable
     {
         lock (_gate)
         {
-            var (cx, cy) = _cursor.Flush();
-            if (cx != 0 || cy != 0) _inner.MoveCursor(cx, cy);
-            var (sx, sy) = _scroll.Flush();
-            if (sx != 0 || sy != 0) _inner.Scroll(sx, sy);
+            FlushLocked();
             _inner.Post(outputEvent);
         }
+    }
+
+    private void FlushLocked()
+    {
+        var (cx, cy) = _cursor.Flush();
+        if (cx != 0 || cy != 0) _inner.MoveCursor(cx, cy);
+        var (sx, sy) = _scroll.Flush();
+        if (sx != 0 || sy != 0) _inner.Scroll(sx, sy);
+        var (lx, ly) = _look.Flush();
+        if (lx != 0 || ly != 0) _inner.Look(lx, ly);
     }
 
     private void Run()
@@ -91,7 +127,7 @@ public sealed class PacedOutputSink : IOutputSink, IDisposable
         while (_running)
         {
             bool pending;
-            lock (_gate) pending = _cursor.HasPending || _scroll.HasPending;
+            lock (_gate) pending = _cursor.HasPending || _scroll.HasPending || _look.HasPending;
 
             if (!pending)
             {
@@ -112,6 +148,8 @@ public sealed class PacedOutputSink : IOutputSink, IDisposable
                 if (cx != 0 || cy != 0) _inner.MoveCursor(cx, cy);
                 var (sx, sy) = _scroll.Take(seconds);
                 if (sx != 0 || sy != 0) _inner.Scroll(sx, sy);
+                var (lx, ly) = _look.Take(seconds);
+                if (lx != 0 || ly != 0) _inner.Look(lx, ly);
             }
         }
     }
@@ -121,11 +159,7 @@ public sealed class PacedOutputSink : IOutputSink, IDisposable
         _running = false;
         _wake.Set();
         _thread.Join(TimeSpan.FromSeconds(1));
-        lock (_gate)
-        {
-            var (cx, cy) = _cursor.Flush();
-            if (cx != 0 || cy != 0) _inner.MoveCursor(cx, cy);
-        }
+        lock (_gate) FlushLocked();
 
         _wake.Dispose();
     }

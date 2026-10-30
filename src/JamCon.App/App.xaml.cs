@@ -29,6 +29,7 @@ public partial class App : Application
     private SendInputOutputSink? _output;
     private PacedOutputSink? _pacedOutput;
     private RadialMenuOverlay? _radialOverlay;
+    private ModeToast? _modeToast;
     private EngineHost? _engine;
     private JoyCon2Link? _link;
     private TrayController? _tray;
@@ -75,6 +76,7 @@ public partial class App : Application
         };
 
         _log.Write(StartMenuShortcut.Ensure());
+        if (StartupRegistration.Refresh() is { } startup) _log.Write(startup);
 
         _settingsFile = new AppSettingsFile(AppPaths.SettingsFile, _log.Write);
         _input = new SettingsStore(_settingsFile.Input);
@@ -92,14 +94,17 @@ public partial class App : Application
             : "Could not raise timer resolution; cursor timing may be coarser.");
 
         _output = new SendInputOutputSink(_log.Write);
-        if (_settingsFile.SmoothMotion) _pacedOutput = new PacedOutputSink(_output);
+        // Always in the chain; the Smooth motion setting switches it on and off live.
+        _pacedOutput = new PacedOutputSink(_output) { Enabled = _settingsFile.SmoothMotion };
         _log.Write(_settingsFile.SmoothMotion
             ? "Smooth motion on: controller motion is re-emitted at 240 Hz."
             : "Smooth motion off: motion is emitted as each report arrives.");
 
         _radialOverlay = new RadialMenuOverlay();
-        _engine = new EngineHost(
-            (IOutputSink?)_pacedOutput ?? _output, _input, _log.Write, new RadialMenuPresenter(_radialOverlay, _log.Write));
+        _modeToast = new ModeToast();
+        _engine = new EngineHost(_pacedOutput, _input, _log.Write, new RadialMenuPresenter(_radialOverlay, _log.Write));
+        _engine.Engine.ModeToggleRequested += ToggleMode;
+        _log.Write($"Mode: {_input.Snapshot().Mode}.");
 
         _link = new JoyCon2Link(_log.Write)
         {
@@ -128,8 +133,9 @@ public partial class App : Application
             _engine.Post(engine => engine.ProcessFrame(id, report, frame.TimestampSeconds));
         };
 
-        _tray = new TrayController(_link, _log, _settingsFile, _input, _engine);
-        if (e.Args.Contains("--show-status")) _tray.ShowStatusWindow(); // dev aid: same path as a tray click
+        _tray = new TrayController(_link, _log, _settingsFile, _input, _engine, _pacedOutput);
+        if (e.Args.Contains("--show-status")) _tray.ShowStatusWindow(); // dev aids: the same paths as the tray
+        if (e.Args.Contains("--show-settings")) _tray.ShowSettingsWindow();
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
         _log.Write($"Mouse control is {(_input.Snapshot().IsEnabled ? "on" : "off")}. Settings: {AppPaths.SettingsFile}");
@@ -168,6 +174,18 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// Raised on the engine thread when the mode button is held. The engine sees the new mode on its
+    /// next frame and releases anything held in the old one.
+    /// </summary>
+    private void ToggleMode()
+    {
+        _input!.Update(s => s with { Mode = s.Mode == InputMode.Game ? InputMode.Desktop : InputMode.Game });
+        var mode = _input.Snapshot().Mode;
+        _log!.Write($"Switched to {mode} mode.");
+        Dispatcher.BeginInvoke(() => _modeToast?.Flash(mode == InputMode.Game ? "Game mode" : "Desktop mode"));
+    }
+
+    /// <summary>
     /// After resume the radio has been powered down, so existing WinRT device objects may be stale
     /// without reporting it. Restart the link rather than trust them. Suspend is logged too, so the
     /// log shows how long each sleep lasted and what the controller did across it.
@@ -190,6 +208,7 @@ public partial class App : Application
         _engine?.Dispose();
         _pacedOutput?.Dispose();
         _radialOverlay?.Close();
+        _modeToast?.Close();
         _timerResolution?.Dispose();
 
         _log?.Write("JamCon.Win exiting.");

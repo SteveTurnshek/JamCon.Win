@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using JamCon.Core.Gyro;
 using JamCon.Core.Mapping;
 using JamCon.Core.Protocol;
@@ -18,10 +19,21 @@ public sealed record InputSettings
     /// <summary>Master switch for all output. Turning it off releases anything held down.</summary>
     public bool IsEnabled { get; init; } = true;
 
+    /// <summary>Desktop moves the cursor; game mode aims with relative mouse motion. See <see cref="InputMode"/>.</summary>
+    public InputMode Mode { get; init; } = InputMode.Desktop;
+
+    /// <summary>Desktop gyro tuning.</summary>
     public GyroSettings Gyro { get; init; } = GyroSettings.Default;
+
+    public GyroSettings GameGyro { get; init; } = GyroSettings.GameDefault;
 
     public ButtonMappingProfile RightButtons { get; init; } = ButtonMappingProfile.DefaultFor(JoyCon2Handedness.Right);
     public ButtonMappingProfile LeftButtons { get; init; } = ButtonMappingProfile.DefaultFor(JoyCon2Handedness.Left);
+    public ButtonMappingProfile GameRightButtons { get; init; } = ButtonMappingProfile.GameDefaultFor(JoyCon2Handedness.Right);
+    public ButtonMappingProfile GameLeftButtons { get; init; } = ButtonMappingProfile.GameDefaultFor(JoyCon2Handedness.Left);
+
+    /// <summary>In game mode, the stick holds W, A, S and D instead of scrolling.</summary>
+    public bool GameStickMovement { get; init; } = true;
 
     /// <summary>Whether gyro and stick may move the cursor or scroll. Buttons still work when off.</summary>
     public bool CursorControlEnabled { get; init; } = true;
@@ -32,8 +44,31 @@ public sealed record InputSettings
 
     public RadialMenuConfiguration RadialMenu { get; init; } = RadialMenuConfiguration.Default;
 
-    public ButtonMappingProfile ButtonsFor(JoyCon2Handedness handedness) =>
-        handedness == JoyCon2Handedness.Right ? RightButtons : LeftButtons;
+    /// <summary>The buttons in effect: the current mode's profile for that side.</summary>
+    public ButtonMappingProfile ButtonsFor(JoyCon2Handedness handedness) => (Mode, handedness) switch
+    {
+        (InputMode.Game, JoyCon2Handedness.Right) => GameRightButtons,
+        (InputMode.Game, _) => GameLeftButtons,
+        (_, JoyCon2Handedness.Right) => RightButtons,
+        _ => LeftButtons,
+    };
+
+    /// <summary>The gyro tuning in effect for the current mode.</summary>
+    [JsonIgnore]
+    public GyroSettings ActiveGyro => Mode == InputMode.Game ? GameGyro : Gyro;
+}
+
+/// <summary>What the controller is being used for.</summary>
+public enum InputMode
+{
+    /// <summary>Gyro moves the cursor (while the clutch is held); stick scrolls.</summary>
+    Desktop,
+
+    /// <summary>
+    /// Gyro always aims, as relative mouse motion that games read as mouse look; the stick holds
+    /// WASD. Absolute cursor positioning cannot work here: games recentre the cursor every frame.
+    /// </summary>
+    Game,
 }
 
 /// <summary>

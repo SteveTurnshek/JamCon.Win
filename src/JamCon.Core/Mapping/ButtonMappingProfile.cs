@@ -86,7 +86,7 @@ public sealed class ButtonMappingProfile
     /// <remarks>
     /// Kept as upstream: triggers and shoulders click (ZR/ZL left, R/L right), Plus/Minus middle
     /// click, X/Up is the drag clutch, B/Down holds the radial menu, A/Left is Escape (hold Ctrl+C),
-    /// the side rails are arrow keys, and C is unmapped.
+    /// and the side rails are arrow keys.
     ///
     /// Changed for Windows: HOME/Capture opens Task View instead of Mission Control (hold:
     /// Play/Pause); stick click is the Browser Back key instead of ⌘[ (hold: Browser Forward
@@ -96,6 +96,9 @@ public sealed class ButtonMappingProfile
     /// app (Handy) uses Ctrl+Space in toggle mode, so: hold to dictate (Ctrl+Space as the hold
     /// starts and again as it ends), double tap for Enter, and tap-then-hold to delete a word every
     /// half second (Ctrl+Backspace). A single tap does nothing.
+    ///
+    /// Holding C (left Joy-Con: Capture, which has no C) switches to game mode; see
+    /// <see cref="GameDefaultFor"/>. On the left this replaces Capture's hold, Play/Pause.
     /// </remarks>
     public static ButtonMappingProfile DefaultFor(JoyCon2Handedness handedness)
     {
@@ -128,6 +131,7 @@ public sealed class ButtonMappingProfile
                 [JoyCon2Button.StickClick] = backForward,
                 [JoyCon2Button.SL] = new(ButtonAction.Key(VirtualKeys.Down)),
                 [JoyCon2Button.SR] = new(ButtonAction.Key(VirtualKeys.Up)),
+                [JoyCon2Button.C] = SwitchMode,
             }
             : new Dictionary<JoyCon2Button, ButtonActions>
             {
@@ -138,10 +142,58 @@ public sealed class ButtonMappingProfile
                 [JoyCon2Button.L] = new(ButtonAction.Click(MouseButton.Right)),
                 [JoyCon2Button.ZL] = new(ButtonAction.Click(MouseButton.Left)),
                 [JoyCon2Button.Minus] = new(ButtonAction.Click(MouseButton.Middle)),
-                [JoyCon2Button.Capture] = taskView,
+                [JoyCon2Button.Capture] = new(ButtonAction.System(SystemAction.TaskView), ButtonAction.ToggleMode),
                 [JoyCon2Button.StickClick] = backForward,
                 [JoyCon2Button.SL] = new(ButtonAction.Key(VirtualKeys.Up)),
                 [JoyCon2Button.SR] = new(ButtonAction.Key(VirtualKeys.Down)),
+            };
+
+        return new ButtonMappingProfile(mappings);
+    }
+
+    /// <summary>Hold to switch between desktop and game mode; a tap does nothing.</summary>
+    private static readonly ButtonActions SwitchMode = new(ButtonAction.None, ButtonAction.ToggleMode);
+
+    /// <summary>
+    /// Game mode defaults: gyro aims (always on, no clutch), the stick moves with WASD, and the
+    /// buttons are common PC shooter keys. Every key is held for as long as its button is.
+    /// </summary>
+    /// <remarks>
+    /// HOME is left unmapped: it wakes a nearby Switch 2. The same button as on the desktop switches
+    /// back (C, or Capture on the left).
+    /// </remarks>
+    public static ButtonMappingProfile GameDefaultFor(JoyCon2Handedness handedness)
+    {
+        ButtonActions Key(ushort virtualKey) => new(ButtonAction.Key(virtualKey));
+
+        var mappings = handedness == JoyCon2Handedness.Right
+            ? new Dictionary<JoyCon2Button, ButtonActions>
+            {
+                [JoyCon2Button.ZR] = new(ButtonAction.Click(MouseButton.Left)),
+                [JoyCon2Button.R] = new(ButtonAction.Click(MouseButton.Right)),
+                [JoyCon2Button.A] = Key(VirtualKeys.Space),
+                [JoyCon2Button.B] = Key(VirtualKeys.LeftControl),
+                [JoyCon2Button.X] = Key(VirtualKeys.R),
+                [JoyCon2Button.Y] = Key(VirtualKeys.E),
+                [JoyCon2Button.StickClick] = Key(VirtualKeys.LeftShift),
+                [JoyCon2Button.Plus] = Key(VirtualKeys.Escape),
+                [JoyCon2Button.SL] = Key(VirtualKeys.Q),
+                [JoyCon2Button.SR] = Key(VirtualKeys.F),
+                [JoyCon2Button.C] = SwitchMode,
+            }
+            : new Dictionary<JoyCon2Button, ButtonActions>
+            {
+                [JoyCon2Button.ZL] = new(ButtonAction.Click(MouseButton.Left)),
+                [JoyCon2Button.L] = new(ButtonAction.Click(MouseButton.Right)),
+                [JoyCon2Button.DpadRight] = Key(VirtualKeys.Space),
+                [JoyCon2Button.DpadDown] = Key(VirtualKeys.LeftControl),
+                [JoyCon2Button.DpadUp] = Key(VirtualKeys.R),
+                [JoyCon2Button.DpadLeft] = Key(VirtualKeys.E),
+                [JoyCon2Button.StickClick] = Key(VirtualKeys.LeftShift),
+                [JoyCon2Button.Minus] = Key(VirtualKeys.Escape),
+                [JoyCon2Button.SL] = Key(VirtualKeys.Q),
+                [JoyCon2Button.SR] = Key(VirtualKeys.F),
+                [JoyCon2Button.Capture] = SwitchMode,
             };
 
         return new ButtonMappingProfile(mappings);

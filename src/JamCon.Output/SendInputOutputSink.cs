@@ -53,6 +53,7 @@ public sealed unsafe class SendInputOutputSink(Action<string> log) : IOutputSink
     private (int Left, int Top, int Width, int Height) _virtualScreen;
     private long _displaysRefreshedAt = long.MinValue;
     private SubUnitAccumulator _wheel;
+    private SubUnitAccumulator _look;
     private int _blockedCount;
 
     /// <summary>Injected events Windows refused, typically because an elevated window has focus.</summary>
@@ -107,6 +108,26 @@ public sealed unsafe class SendInputOutputSink(Action<string> log) : IOutputSink
 
         if (vertical != 0) SendMouse(MouseEventWheel, vertical);
         if (horizontal != 0) SendMouse(MouseEventHWheel, horizontal);
+    }
+
+    /// <summary>
+    /// Relative motion, for game mode. Games reading raw input get these counts unchanged; Windows
+    /// pointer ballistics only touch the visible cursor, which a game in mouse look has hidden.
+    /// </summary>
+    public void Look(double dx, double dy)
+    {
+        if (!double.IsFinite(dx) || !double.IsFinite(dy)) return;
+        var (x, y) = _look.Consume(dx, dy);
+        if (x == 0 && y == 0) return;
+
+        Send(new Input
+        {
+            Type = InputMouse,
+            Union = new InputUnion { Mouse = new MouseInput { Dx = x, Dy = y, Flags = MouseEventMove } },
+        });
+
+        // The cursor moved by an unknown amount; MoveCursor must adopt its real position next time.
+        _hasPosition = false;
     }
 
     public void Post(SyntheticOutputEvent outputEvent)

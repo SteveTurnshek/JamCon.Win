@@ -34,9 +34,18 @@ public static class VirtualKeys
     public const ushort Up = 0x26;
     public const ushort Right = 0x27;
     public const ushort Down = 0x28;
+    public const ushort A = 0x41;
     public const ushort C = 0x43;
     public const ushort D = 0x44;
+    public const ushort E = 0x45;
+    public const ushort F = 0x46;
     public const ushort H = 0x48;
+    public const ushort Q = 0x51;
+    public const ushort R = 0x52;
+    public const ushort S = 0x53;
+    public const ushort W = 0x57;
+    public const ushort LeftShift = 0xA0;
+    public const ushort LeftControl = 0xA2;
     public const ushort BrowserBack = 0xA6;
     public const ushort BrowserForward = 0xA7;
     public const ushort MediaPlayPause = 0xB3;
@@ -46,6 +55,7 @@ public static class VirtualKeys
         [Back] = "Backspace", [Tab] = "Tab", [Return] = "Enter", [Escape] = "Esc", [Space] = "Space",
         [0x21] = "Page Up", [0x22] = "Page Down", [0x23] = "End", [0x24] = "Home",
         [Left] = "←", [Up] = "↑", [Right] = "→", [Down] = "↓", [0x2E] = "Delete",
+        [LeftShift] = "Shift", [LeftControl] = "Ctrl",
         [BrowserBack] = "Browser Back", [BrowserForward] = "Browser Forward",
         [0xAD] = "Mute", [0xAE] = "Volume Down", [0xAF] = "Volume Up",
         [0xB0] = "Next Track", [0xB1] = "Previous Track", [MediaPlayPause] = "Play/Pause",
@@ -111,12 +121,14 @@ public enum SystemAction
 [JsonDerivedType(typeof(RadialMenuAction), "radialMenu")]
 [JsonDerivedType(typeof(HoldToggleAction), "holdToggle")]
 [JsonDerivedType(typeof(RepeatKeyAction), "repeatKey")]
+[JsonDerivedType(typeof(ToggleModeAction), "toggleMode")]
 public abstract record ButtonAction
 {
     public static ButtonAction None { get; } = new NoAction();
     public static ButtonAction Drag { get; } = new DragAction();
     public static ButtonAction Scroll { get; } = new ScrollAction();
     public static ButtonAction RadialMenu { get; } = new RadialMenuAction();
+    public static ButtonAction ToggleMode { get; } = new ToggleModeAction();
 
     public static ButtonAction Click(MouseButton button) => new MouseClickAction(button);
     public static ButtonAction Key(ushort virtualKey, KeyModifiers modifiers = KeyModifiers.None) =>
@@ -200,6 +212,15 @@ public sealed record HoldToggleAction(KeyCombo Combo) : ButtonAction
 public sealed record RepeatKeyAction(KeyCombo Combo, double IntervalSeconds) : ButtonAction
 {
     public override string DisplayName => $"{Combo}, every {IntervalSeconds:0.##} s while held";
+}
+
+/// <summary>
+/// Switches between desktop and game mode (<see cref="Engine.InputMode"/>). Sends nothing itself;
+/// the engine asks its host to flip the mode.
+/// </summary>
+public sealed record ToggleModeAction : ButtonAction
+{
+    public override string DisplayName => "Switch desktop/game mode";
 }
 
 /// <summary>

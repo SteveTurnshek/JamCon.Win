@@ -90,7 +90,7 @@ public class DefaultProfileTests
         Assert.Equal(
             new ButtonActions(ButtonAction.System(SystemAction.TaskView), ButtonAction.System(SystemAction.PlayPause)),
             profile.ActionsFor(JoyCon2Button.Home));
-        Assert.Equal(ButtonActions.Empty, profile.ActionsFor(JoyCon2Button.C));
+        Assert.Equal(new ButtonActions(ButtonAction.None, ButtonAction.ToggleMode), profile.ActionsFor(JoyCon2Button.C));
         Assert.Equal(new ButtonActions(ButtonAction.RadialMenu), profile.ActionsFor(JoyCon2Button.B));
         Assert.Equal(ButtonMappingProfile.DefaultHoldThreshold, profile.HoldThreshold);
         Assert.True(profile.HasDragMapping);
@@ -106,8 +106,8 @@ public class DefaultProfileTests
         Assert.Equal(new ButtonActions(ButtonAction.Click(MouseButton.Middle)), profile.ActionsFor(JoyCon2Button.Minus));
         Assert.Equal(new ButtonActions(ButtonAction.Drag), profile.ActionsFor(JoyCon2Button.DpadUp));
         Assert.Equal(
-            new ButtonActions(ButtonAction.System(SystemAction.TaskView), ButtonAction.System(SystemAction.PlayPause)),
-            profile.ActionsFor(JoyCon2Button.Capture));
+            new ButtonActions(ButtonAction.System(SystemAction.TaskView), ButtonAction.ToggleMode),
+            profile.ActionsFor(JoyCon2Button.Capture)); // the left has no C, so Capture switches modes
     }
 
     [Fact]

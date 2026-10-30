@@ -34,6 +34,10 @@ public class PacingTests
         public void Scroll(double dx, double dy)
         {
         }
+
+        public void Look(double dx, double dy)
+        {
+        }
     }
 
     [Fact]

@@ -7,12 +7,13 @@ using JamCon.App.Services;
 using JamCon.Bluetooth;
 using JamCon.Core.Engine;
 using JamCon.Core.Mapping;
+using JamCon.Output;
 
 namespace JamCon.App.Tray;
 
 /// <summary>
 /// The notification-area icon: shows link state at a glance, carries the menu, and opens the
-/// status window. Owns no connection or input logic of its own.
+/// settings window (left click) and status window. Owns no connection or input logic of its own.
 /// </summary>
 internal sealed class TrayController : IDisposable
 {
@@ -21,6 +22,7 @@ internal sealed class TrayController : IDisposable
     private readonly AppSettingsFile _settingsFile;
     private readonly SettingsStore _input;
     private readonly EngineHost _engine;
+    private readonly PacedOutputSink _pacedOutput;
     private readonly TaskbarIcon _icon;
     private readonly DispatcherTimer _timer;
     private readonly MenuItem _statusItem;
@@ -29,9 +31,12 @@ internal sealed class TrayController : IDisposable
     private readonly MenuItem _sleepItem;
     private (TrayTone Tone, bool Light)? _shownIcon;
     private StatusWindow? _window;
+    private SettingsWindow? _settingsWindow;
 
-    public TrayController(JoyCon2Link link, FileLog log, AppSettingsFile settingsFile, SettingsStore input, EngineHost engine)
+    public TrayController(
+        JoyCon2Link link, FileLog log, AppSettingsFile settingsFile, SettingsStore input, EngineHost engine, PacedOutputSink pacedOutput)
     {
+        _pacedOutput = pacedOutput;
         _link = link;
         _log = log;
         _settingsFile = settingsFile;
@@ -58,7 +63,7 @@ internal sealed class TrayController : IDisposable
             ContextMenu = BuildMenu(),
             NoLeftClickDelay = true,
         };
-        _icon.TrayLeftMouseUp += (_, _) => ShowStatusWindow();
+        _icon.TrayLeftMouseUp += (_, _) => ShowSettingsWindow();
 
         Refresh();
 
@@ -75,6 +80,9 @@ internal sealed class TrayController : IDisposable
 
     private ContextMenu BuildMenu()
     {
+        var settings = new MenuItem { Header = "Settings…", FontWeight = FontWeights.SemiBold };
+        settings.Click += (_, _) => ShowSettingsWindow();
+
         var show = new MenuItem { Header = "Show status" };
         show.Click += (_, _) => ShowStatusWindow();
 
@@ -97,6 +105,7 @@ internal sealed class TrayController : IDisposable
         var menu = new ContextMenu();
         menu.Items.Add(_statusItem);
         menu.Items.Add(new Separator());
+        menu.Items.Add(settings);
         menu.Items.Add(_mouseControlItem);
         menu.Items.Add(recalibrate);
         menu.Items.Add(new Separator());
@@ -169,10 +178,37 @@ internal sealed class TrayController : IDisposable
         if (!settings.CursorControlEnabled) return "Buttons only; cursor control is off";
 
         var profile = settings.ButtonsFor(controller.Handedness);
+        if (settings.Mode == InputMode.Game)
+        {
+            var toggle = profile.Mappings.FirstOrDefault(m => m.Value.Hold is ToggleModeAction).Key;
+            return $"Game mode: gyro aims. Hold {JoyCon2ButtonLayout.DisplayName(toggle)} for desktop";
+        }
+
         var clutch = profile.Mappings.FirstOrDefault(m => m.Value.Press is JamCon.Core.Mapping.DragAction).Key;
         return profile.HasDragMapping
             ? $"Hold {JoyCon2ButtonLayout.DisplayName(clutch)} to move the cursor"
             : "Point the controller to move the cursor";
+    }
+
+    public void ShowSettingsWindow()
+    {
+        try
+        {
+            if (_settingsWindow is null)
+            {
+                _settingsWindow = new SettingsWindow(_input, _settingsFile, _link, _pacedOutput, _log, ShowStatusWindow);
+                _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+            }
+
+            _settingsWindow.Show();
+            if (_settingsWindow.WindowState == WindowState.Minimized) _settingsWindow.WindowState = WindowState.Normal;
+            _settingsWindow.Activate();
+        }
+        catch (Exception ex)
+        {
+            _log.Write($"Couldn't open the settings window: {ex}");
+            _settingsWindow = null;
+        }
     }
 
     public void ShowStatusWindow()
@@ -195,6 +231,7 @@ internal sealed class TrayController : IDisposable
     {
         _timer.Stop();
         _window?.CloseForExit();
+        _settingsWindow?.Close();
         _icon.Dispose();
     }
 }

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using JamCon.Bluetooth;
 using JamCon.Core.Engine;
@@ -12,8 +13,9 @@ namespace JamCon.App.Services;
 /// <see cref="InputSettings"/> (gyro tuning, button mappings, the mouse-control switch).
 /// </summary>
 /// <remarks>
-/// There is no settings UI yet, so the file is written indented with enum names, readable and
-/// editable by hand. Each section loads independently: a damaged section falls back to its
+/// The file is written indented with enum names, readable and editable by hand. Button layouts and
+/// the radial menu are saved only once they differ from the defaults, so improved defaults still
+/// reach anyone who never customised them. Each section loads independently: a damaged section falls back to its
 /// defaults, logged, rather than costing everything else or crashing startup.
 /// </remarks>
 internal sealed class AppSettingsFile
@@ -56,6 +58,24 @@ internal sealed class AppSettingsFile
         get
         {
             lock (_gate) return _smoothMotion;
+        }
+    }
+
+    public void SetIdleSleepMinutes(int minutes)
+    {
+        lock (_gate)
+        {
+            _idleSleepMinutes = Math.Max(0, minutes);
+            Save();
+        }
+    }
+
+    public void SetSmoothMotion(bool enabled)
+    {
+        lock (_gate)
+        {
+            _smoothMotion = enabled;
+            Save();
         }
     }
 
@@ -180,7 +200,7 @@ internal sealed class AppSettingsFile
         {
             ControllerAddress = _controller is { } c ? JoyCon2Link.Format(c.Address) : null,
             ControllerHandedness = _controller?.Handedness.ToString(),
-            Input = _input,
+            Input = InputNode(_input),
             IdleSleepMinutes = _idleSleepMinutes,
             SmoothMotion = _smoothMotion,
         };
@@ -198,12 +218,28 @@ internal sealed class AppSettingsFile
         }
     }
 
+    private static readonly string[] SavedOnlyWhenChanged =
+        [nameof(InputSettings.RightButtons), nameof(InputSettings.LeftButtons),
+         nameof(InputSettings.GameRightButtons), nameof(InputSettings.GameLeftButtons), nameof(InputSettings.RadialMenu)];
+
+    private static JsonNode InputNode(InputSettings input)
+    {
+        var node = JsonSerializer.SerializeToNode(input, JsonOptions)!.AsObject();
+        var defaults = JsonSerializer.SerializeToNode(InputSettings.Default, JsonOptions)!.AsObject();
+        foreach (var name in SavedOnlyWhenChanged)
+        {
+            if (JsonNode.DeepEquals(node[name], defaults[name])) node.Remove(name);
+        }
+
+        return node;
+    }
+
     private sealed class SettingsFileContents
     {
         public string? ControllerAddress { get; set; }
         public string? ControllerHandedness { get; set; }
         public int IdleSleepMinutes { get; set; } = DefaultIdleSleepMinutes;
         public bool SmoothMotion { get; set; } = true;
-        public InputSettings? Input { get; set; }
+        public JsonNode? Input { get; set; }
     }
 }

@@ -11,10 +11,12 @@ internal sealed class RecordingOutputSink : IOutputSink
     public List<SyntheticOutputEvent> Events { get; } = [];
     public List<(double Dx, double Dy)> Moves { get; } = [];
     public List<(double Dx, double Dy)> Scrolls { get; } = [];
+    public List<(double Dx, double Dy)> Looks { get; } = [];
 
     public void Post(SyntheticOutputEvent outputEvent) => Events.Add(outputEvent);
     public void MoveCursor(double dx, double dy) => Moves.Add((dx, dy));
     public void Scroll(double dx, double dy) => Scrolls.Add((dx, dy));
+    public void Look(double dx, double dy) => Looks.Add((dx, dy));
 
     public static SyntheticOutputEvent Down(MouseButton button) => new(SyntheticOutput.Mouse(button), true);
     public static SyntheticOutputEvent Up(MouseButton button) => new(SyntheticOutput.Mouse(button), false);

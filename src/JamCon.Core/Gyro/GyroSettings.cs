@@ -20,6 +20,13 @@ public sealed record GyroSettings
 
     public static GyroSettings Default { get; } = new();
 
+    /// <summary>
+    /// Game mode: linear (no acceleration), so a given turn of the controller always turns the camera
+    /// the same amount, and lighter smoothing for less lag. Output is relative mouse counts, so
+    /// <see cref="Sensitivity"/> 200 is 20 counts per degree; the game's own sensitivity scales it.
+    /// </summary>
+    public static GyroSettings GameDefault { get; } = new() { Sensitivity = 200.0, SensitivityCap = 1.0, MinCutoff = 5.0 };
+
     public double Sensitivity { get; init; } = 40.0;
 
     /// <summary>

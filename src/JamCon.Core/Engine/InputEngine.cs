@@ -60,6 +60,12 @@ public sealed class InputEngine
     public int ActiveOutputCount => _executor.Coordinator.ActiveOutputCount;
 
     /// <summary>
+    /// A <see cref="ToggleModeAction"/> fired. Raised on the engine thread; the host flips
+    /// <see cref="InputSettings.Mode"/>, and the engine releases everything when it sees the change.
+    /// </summary>
+    public event Action? ModeToggleRequested;
+
+    /// <summary>
     /// A controller connected, or reconnected. Starts it from a clean slate and anchors its stick on
     /// the factory record when one was read.
     /// </summary>
@@ -137,6 +143,15 @@ public sealed class InputEngine
         var s = _settings();
         if (!s.IsEnabled) return;
 
+        if (device.Mode != s.Mode)
+        {
+            // Nothing held in one mode may stay held in the other: a desktop drag or a game's W key
+            // would otherwise be stuck down. Buttons still held re-prime and do not fire again.
+            ResetTransientState(device, resetGyro: false);
+            device.Mode = s.Mode;
+        }
+
+        var game = s.Mode == InputMode.Game;
         var profile = s.ButtonsFor(device.Handedness);
         var cursorEnabled = s.CursorControlEnabled;
 
@@ -156,14 +171,52 @@ public sealed class InputEngine
         }
 
         var axes = GyroRemapper.Remap(report.Imu.GyroX, report.Imu.GyroY, report.Imu.GyroZ, device.Handedness);
-        var gyro = s.Gyro with { ExpectedSampleRate = motionSampleRate };
+        var gyro = s.ActiveGyro with { ExpectedSampleRate = motionSampleRate };
         var scale = GyroSettings.EffectiveScale(gyro.GyroScale, GyroConstants.DegreesPerSecondPerCount);
         var (dx, dy) = device.Gyro.Process(axes.Pitch, axes.Yaw, axes.Roll, timestamp, gyro, scale);
-        RouteGyroMovement(device, dx, dy, cursorEnabled, profile.HasDragMapping);
+        RouteGyroMovement(device, dx, dy, cursorEnabled, profile.HasDragMapping, game);
 
-        if (s.JoystickScrollEnabled && cursorEnabled && device.Calibration.IsCalibrated)
+        if (!cursorEnabled || !device.Calibration.IsCalibrated) return;
+        if (game)
+        {
+            if (s.GameStickMovement) ProcessStickMovement(device, StickReader.Normalized(stick, device.Calibration));
+        }
+        else if (s.JoystickScrollEnabled)
         {
             ProcessJoystickScroll(StickReader.Normalized(stick, device.Calibration), s);
+        }
+    }
+
+    /// <summary>Stick deflection, as a fraction of full travel, that presses a direction key.</summary>
+    internal const double StickPressThreshold = 0.5;
+
+    /// <summary>Lower than the press threshold, so a stick resting near it does not chatter the key.</summary>
+    internal const double StickReleaseThreshold = 0.35;
+
+    private static readonly (ushort Key, string Control)[] StickKeys =
+    [
+        (VirtualKeys.W, "stick.up"), (VirtualKeys.S, "stick.down"), (VirtualKeys.A, "stick.left"), (VirtualKeys.D, "stick.right"),
+    ];
+
+    /// <summary>Game mode: the stick holds W, A, S and D, diagonals pressing two at once.</summary>
+    private void ProcessStickMovement(DeviceState device, (byte X, byte Y) position)
+    {
+        const double center = 128.0;
+        const double maxDelta = 127.0;
+        var x = (position.X - center) / maxDelta;
+        var y = (position.Y - center) / maxDelta; // positive is up
+        double[] deflection = [y, -y, -x, x];
+
+        for (var i = 0; i < StickKeys.Length; i++)
+        {
+            var held = device.StickKeysHeld[i];
+            var wanted = held ? deflection[i] > StickReleaseThreshold : deflection[i] > StickPressThreshold;
+            if (wanted == held) continue;
+
+            device.StickKeysHeld[i] = wanted;
+            var (key, control) = StickKeys[i];
+            _executor.Execute(
+                ButtonAction.Key(key), wanted, new SyntheticOutputOwner(device.Id, control, SyntheticOutputRole.Press));
         }
     }
 
@@ -177,12 +230,13 @@ public sealed class InputEngine
         return hasDragMapping ? GyroMode.None : GyroMode.Normal;
     }
 
-    private void RouteGyroMovement(DeviceState device, double dx, double dy, bool cursorEnabled, bool hasDragMapping)
+    private void RouteGyroMovement(DeviceState device, double dx, double dy, bool cursorEnabled, bool hasDragMapping, bool game)
     {
         switch (CurrentGyroMode(device, hasDragMapping))
         {
             case GyroMode.Normal or GyroMode.Drag when cursorEnabled:
-                _output.MoveCursor(dx, dy);
+                if (game) _output.Look(dx, dy);
+                else _output.MoveCursor(dx, dy);
                 break;
             case GyroMode.Scroll when cursorEnabled:
                 _output.Scroll(dx, dy);
@@ -313,8 +367,10 @@ public sealed class InputEngine
             return;
         }
 
-        // Mouse buttons go down immediately so a held click can drag; keys wait to see if it is a hold.
-        if (actions.Press is MouseClickAction) _executor.Execute(actions.Press, true, state.PressOwner);
+        // Mouse buttons go down immediately so a held click can drag. Keys wait to see if it is a
+        // hold, unless there is no hold action to wait for: then they too follow the button, which
+        // is what a game expects of a movement or sprint key.
+        if (HeldWithButton(actions)) _executor.Execute(actions.Press, true, state.PressOwner);
 
         if (actions.Hold is not NoAction)
         {
@@ -353,7 +409,7 @@ public sealed class InputEngine
 
         // Release the actions captured at button-down, so editing the mapping mid-press cannot
         // leave the original output stuck down.
-        if (state.Actions.Press is MouseClickAction)
+        if (HeldWithButton(state.Actions))
         {
             _executor.Execute(state.Actions.Press, false, state.PressOwner);
             if (state.HoldFired) EndHeld(state.Actions.Hold, state.HoldOwner, state.Held);
@@ -369,6 +425,9 @@ public sealed class InputEngine
 
         device.PressStates[index] = null;
     }
+
+    private static bool HeldWithButton(ButtonActions actions) =>
+        actions.Press is MouseClickAction || (actions.Press is KeyPressAction && actions.Hold is NoAction);
 
     private void ReleaseGyroMode(DeviceState device, ButtonAction action)
     {
@@ -393,7 +452,7 @@ public sealed class InputEngine
         }
     }
 
-    private void ResetTransientState(DeviceState device)
+    private void ResetTransientState(DeviceState device, bool resetGyro = true)
     {
         foreach (var state in device.PressStates)
         {
@@ -422,7 +481,10 @@ public sealed class InputEngine
         Array.Clear(device.PreviousButtons);
         device.HasPrimedButtonState = false;
         device.DragButtonHeld = device.ScrollButtonHeld = device.RadialMenuButtonHeld = false;
-        device.Gyro.Reset();
+        Array.Clear(device.StickKeysHeld);
+
+        // A mode switch keeps the learned gyro bias: the controller has not changed.
+        if (resetGyro) device.Gyro.Reset();
         _executor.ReleaseAll(device.Id);
     }
 
@@ -435,6 +497,9 @@ public sealed class InputEngine
         held.Active = true;
         switch (action)
         {
+            case ToggleModeAction:
+                ModeToggleRequested?.Invoke();
+                break;
             case HoldToggleAction toggle:
                 _executor.Tap(toggle, owner);
                 break;
@@ -602,5 +667,7 @@ public sealed class InputEngine
         public bool DragButtonHeld { get; set; }
         public bool ScrollButtonHeld { get; set; }
         public bool RadialMenuButtonHeld { get; set; }
+        public bool[] StickKeysHeld { get; } = new bool[4];
+        public InputMode Mode { get; set; }
     }
 }

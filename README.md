@@ -7,7 +7,7 @@ macOS menu-bar app by James Turnshek. This fork drops macOS support entirely and
 application in C#/.NET for Windows, targeting Switch 2 Joy-Con only.
 
 > **Status: early, but working.** A right Joy-Con 2 connects from the system tray and works as a
-> gyro mouse and keyboard. There is no installer or settings screen yet; build it from source.
+> gyro mouse and keyboard. There is no installer yet; build it from source.
 > Tested on one machine with one controller so far. See [docs/Windows-Port.md](docs/Windows-Port.md)
 > for what has been measured and [docs/JamCon-Win-Plan.md](docs/JamCon-Win-Plan.md) for the plan.
 
@@ -73,7 +73,7 @@ Default buttons for a right Joy-Con 2:
 | HOME | Task View | Play/Pause |
 | Stick click | Browser back | Browser forward |
 | SL / SR | Down / Up arrow | |
-| C | Nothing | |
+| C | | Switch to game mode |
 | Stick | Scroll | |
 
 **Y is the dictation button**, built for a dictation app whose shortcut is Ctrl+Space in toggle mode
@@ -87,13 +87,34 @@ holds still and a dot follows the controller instead.
 After 10 minutes without use, JamCon disconnects so the Joy-Con can sleep and save its battery.
 Hold SYNC to wake it. Right-click the tray icon to
 put it to sleep sooner, turn **Mouse control** off (anything held is released at once), recalibrate
-the gyro, or open the log folder. Left-click it for a live status window.
+the gyro, or open the log folder. It also has a live status window and log.
 
-Settings, including button mappings, gyro tuning and the radial menu, are in
-`%LOCALAPPDATA%\JamCon.Win\settings.json` and can be edited by hand while JamCon is closed; a
-settings screen is still to come. `IdleSleepMinutes` sets the sleep delay (0 disables it).
-`SmoothMotion` re-emits the controller's ~67 Hz motion at 240 Hz for smooth movement on
-high-refresh displays, at a cost of about 7.5 ms of latency; set it to `false` to turn that off.
+**Left-click the tray icon for settings:** cursor speed and smoothing for each mode, scrolling,
+the sleep delay, smooth motion, and starting with Windows. Changes apply at once. Smooth motion
+re-emits the controller's ~67 Hz motion at 240 Hz for smooth movement on high-refresh displays,
+at a cost of about 7.5 ms of latency. Button mappings are not editable there yet; they live in
+`%LOCALAPPDATA%\JamCon.Win\settings.json`, which can be edited by hand while JamCon is closed.
+
+### Game mode
+
+**Hold C** (on a left Joy-Con, Capture) to switch between desktop and game mode; a label on screen
+confirms which. In game mode the gyro always aims, sent as relative mouse movement that games read
+as mouse look. There is no X clutch and no acceleration, so a given turn always turns the camera by
+the same amount. Set the in-game mouse sensitivity, then fine-tune **Aim speed** in settings. Keys
+are held for as long as their buttons are.
+
+| Button | Game mode |
+| --- | --- |
+| ZR / R | Left / right click (fire / aim) |
+| Stick | W A S D |
+| Stick click | Shift |
+| A / B | Space / Ctrl |
+| X / Y | R / E |
+| SL / SR | Q / F |
+| + | Esc |
+| C (hold) | Back to desktop mode |
+
+A virtual Xbox controller mode, for games that only take a gamepad, is planned.
 
 ## Features
 
@@ -107,13 +128,15 @@ Working:
 - Upstream's radial menu
 - Smooth 240 Hz cursor and scroll output from the controller's ~67 Hz reports
 - Automatic reconnection to a remembered controller, and idle sleep to save its battery
+- Game mode: gyro mouse look, stick as W A S D, held game keys
+- Settings window, Start menu shortcut, and optional start with Windows
 - System tray app with live status and a log
 
 Planned:
 
-- A settings screen for button mapping and gyro tuning
+- Button remapping in the settings window
 - Testing the left Joy-Con 2 on hardware (the code supports it), and two Joy-Cons as one device
-- Virtual Xbox gamepad output via ViGEm, as a second output mode
+- A virtual Xbox controller game mode via ViGEm
 - An installer
 
 ## Building

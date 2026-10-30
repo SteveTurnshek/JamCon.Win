@@ -47,6 +47,12 @@ public interface IOutputSink
 
     /// <summary>Scroll by a fractional pixel delta. Positive dx scrolls right; positive dy scrolls down.</summary>
     void Scroll(double dx, double dy);
+
+    /// <summary>
+    /// Relative mouse motion for game mode, in fractional mouse counts. Positive dy is down. Unlike
+    /// <see cref="MoveCursor"/> it never positions the cursor, which games recentre themselves.
+    /// </summary>
+    void Look(double dx, double dy);
 }
 
 /// <summary>
