@@ -210,7 +210,7 @@ public sealed class JoyCon2Session : IAsyncDisposable
             if (attempt == attempts) break;
 
             _log($"Service unreachable (attempt {attempt}/{attempts}, status {_device!.ConnectionStatus}). " +
-                 "PRESS ANY BUTTON ON THE CONTROLLER to wake its radio. Retrying...");
+                 "If it is asleep, hold SYNC until the lights chase. Retrying...");
 
             // Wake early the moment Windows reports the link up. The controller has been seen
             // flapping between connected and disconnected while uninitialized, so a connected
