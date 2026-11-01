@@ -129,6 +129,13 @@ public class RadialMenuGeometryTests
         Assert.Equal(new RadialMenuSelection(false, 1), RadialMenuGeometry.Resolve(60, 0, config).Selection);
         Assert.Equal(new RadialMenuSelection(false, 2), RadialMenuGeometry.Resolve(0, 60, config).Selection);
         Assert.Equal(new RadialMenuSelection(false, 3), RadialMenuGeometry.Resolve(-60, 0, config).Selection);
+
+        // Each slice is centered on its arrow: a little either side of straight up is still Up.
+        Assert.Equal(new RadialMenuSelection(false, 0), RadialMenuGeometry.Resolve(-25, -60, config).Selection);
+        Assert.Equal(new RadialMenuSelection(false, 0), RadialMenuGeometry.Resolve(25, -60, config).Selection);
+        Assert.Equal(new RadialMenuSelection(false, 1), RadialMenuGeometry.Resolve(60, 25, config).Selection);
+        Assert.Equal(new RadialMenuSelection(false, 2), RadialMenuGeometry.Resolve(-25, 60, config).Selection);
+        Assert.Equal(new RadialMenuSelection(false, 3), RadialMenuGeometry.Resolve(-60, -25, config).Selection);
     }
 
     [Fact]
@@ -279,12 +286,12 @@ public class WindowsDefaultsTests
     {
         var settings = InputSettings.Default with
         {
-            RadialMenu = RadialMenuConfiguration.Default with { InnerRingRotation = 45, Name = "Custom" },
+            RadialMenu = RadialMenuConfiguration.Default with { InnerRingRotation = 30, Name = "Custom" },
         };
         var json = System.Text.Json.JsonSerializer.Serialize(settings);
         var restored = System.Text.Json.JsonSerializer.Deserialize<InputSettings>(json)!;
 
-        Assert.Equal(45, restored.RadialMenu.InnerRingRotation);
+        Assert.Equal(30, restored.RadialMenu.InnerRingRotation);
         Assert.Equal("Custom", restored.RadialMenu.Name);
         Assert.Equal(RadialMenuConfiguration.Default.Items, restored.RadialMenu.Items);
     }

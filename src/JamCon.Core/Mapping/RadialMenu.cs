@@ -13,9 +13,8 @@ public sealed record RadialMenuItem(string Label, string Icon, ButtonAction Acti
 /// </summary>
 /// <remarks>
 /// Sizes are in device-independent pixels. Slice 0 starts at straight up and slices run clockwise,
-/// so with the default rotation of 0 a four-item menu puts "Up" in the quarter from 12 to 3 o'clock.
-/// That is upstream's layout, drawn and selected consistently. A rotation of 45° centers each slice
-/// on its direction instead.
+/// turned back by the rotation. Upstream's rotation of 0 put "Up" in the quarter from 12 to 3
+/// o'clock; this fork defaults to 45°, which centers each arrow slice on its direction.
 /// </remarks>
 public sealed record RadialMenuConfiguration
 {
@@ -38,7 +37,7 @@ public sealed record RadialMenuConfiguration
     public double InnerRingSize { get; init; } = 50;
 
     /// <summary>Rotation of the inner ring, in degrees. 45 centers a four-slice menu on its directions.</summary>
-    public double InnerRingRotation { get; init; }
+    public double InnerRingRotation { get; init; } = 45;
 
     public bool OuterRingEnabled { get; init; }
     public IReadOnlyList<RadialMenuItem> OuterRingItems { get; init; } = [];

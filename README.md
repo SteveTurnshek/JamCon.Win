@@ -81,7 +81,8 @@ Default buttons for a right Joy-Con 2:
 let go), double tap Y for Enter, and tap then hold Y to delete a word every half second
 (Ctrl+Backspace) until you let go. A single tap does nothing. Dictation starts 0.3 s into the hold.
 
-The radial menu's default slices are the four arrow keys, as upstream. While it is open the cursor
+The radial menu's default slices are the four arrow keys, as upstream, but turned 45° so each one
+is centered on its direction (upstream put Up between 12 and 3 o'clock). While it is open the cursor
 holds still and a dot follows the controller instead. Its slices, an optional outer ring, rotation
 and sizes are editable in settings, with a live preview.
 
